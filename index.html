@@ -1,0 +1,1043 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Blacktop — a line-art racing game</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='13' fill='none' stroke='%231A1A1A' stroke-width='3'/%3E%3Ccircle cx='16' cy='16' r='3' fill='%231A1A1A'/%3E%3Cpath d='M16 16 L16 4 M16 16 L5 22 M16 16 L27 22' stroke='%231A1A1A' stroke-width='3'/%3E%3C/svg%3E">
+<style>
+  :root {
+    --paper: #FAFAF7;
+    --ink: #1A1A1A;
+    --ink-soft: #55554F;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; overflow: hidden; }
+  body {
+    background: var(--paper);
+    color: var(--ink);
+    font-family: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  #game { display: block; width: 100vw; height: 100vh; }
+
+  /* ---------- overlay screens (retro-Mac window style) ---------- */
+  .screen {
+    position: fixed; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    background: transparent;
+  }
+  .screen[hidden] { display: none; }
+  .panel {
+    background: var(--paper);
+    border: 2px solid var(--ink);
+    box-shadow: 5px 5px 0 var(--ink);
+    padding: 28px 36px;
+    max-width: 560px;
+    width: min(560px, calc(100vw - 40px));
+    max-height: calc(100vh - 40px);
+    overflow-y: auto;
+  }
+  .panel-titlebar {
+    border-bottom: 2px solid var(--ink);
+    margin: -28px -36px 20px;
+    padding: 6px 12px;
+    font-size: 12px;
+    letter-spacing: 0.12em;
+    background: repeating-linear-gradient(to bottom, var(--paper) 0 2px, var(--ink) 2px 3px, var(--paper) 3px 5px);
+  }
+  .panel-titlebar span {
+    background: var(--paper);
+    padding: 0 10px;
+  }
+  h1 {
+    font-size: 44px;
+    letter-spacing: 0.06em;
+    line-height: 1;
+    margin-bottom: 4px;
+  }
+  .tagline { font-size: 13px; color: var(--ink-soft); margin-bottom: 22px; }
+  h2 { font-size: 20px; letter-spacing: 0.08em; margin-bottom: 14px; }
+  .tracks { display: flex; flex-direction: column; gap: 10px; margin-bottom: 20px; }
+  button {
+    font: inherit;
+    color: var(--ink);
+    background: var(--paper);
+    border: 2px solid var(--ink);
+    padding: 10px 14px;
+    cursor: pointer;
+    text-align: left;
+    transition: background 0.15s ease, color 0.15s ease;
+  }
+  button:hover { background: var(--ink); color: var(--paper); }
+  button:hover .best, button:hover .track-key { color: var(--paper); }
+  button:hover canvas { filter: invert(1) hue-rotate(180deg); }
+  button:active { transform: translate(1px, 1px); }
+  button:focus-visible { outline: 3px solid var(--ink); outline-offset: 3px; }
+  .track-btn { display: flex; align-items: center; gap: 14px; }
+  .track-btn canvas { flex: 0 0 auto; }
+  .track-info { flex: 1; }
+  .track-name { font-weight: 700; font-size: 15px; letter-spacing: 0.05em; }
+  .best { font-size: 12px; color: var(--ink-soft); margin-top: 3px; }
+  .track-key {
+    font-size: 12px; color: var(--ink-soft);
+    border: 1px solid currentColor; padding: 1px 6px;
+  }
+  .controls-list { font-size: 12.5px; line-height: 1.9; color: var(--ink); margin-bottom: 18px; }
+  .controls-list b {
+    display: inline-block; min-width: 88px;
+    font-weight: 700;
+  }
+  .footer-line {
+    border-top: 1px solid var(--ink);
+    padding-top: 10px;
+    font-size: 11px;
+    color: var(--ink-soft);
+    display: flex; justify-content: space-between;
+  }
+  /* results */
+  .result-total { font-size: 36px; font-weight: 700; margin: 6px 0 2px; }
+  .new-record {
+    display: inline-block;
+    border: 2px solid var(--ink);
+    padding: 2px 10px;
+    font-weight: 700;
+    font-size: 13px;
+    letter-spacing: 0.15em;
+    margin: 6px 0 4px;
+    animation: blink 0.9s step-end infinite;
+  }
+  @keyframes blink {
+    0%, 100% { background: var(--paper); color: var(--ink); }
+    50% { background: var(--ink); color: var(--paper); }
+  }
+  table.splits { border-collapse: collapse; margin: 14px 0 20px; font-size: 13.5px; }
+  table.splits td { padding: 3px 18px 3px 0; }
+  table.splits td:last-child { padding-right: 0; }
+  .btn-row { display: flex; gap: 10px; margin-bottom: 18px; }
+  .btn-row button { flex: 1; text-align: center; font-weight: 700; }
+  .pause-panel { text-align: center; }
+  @media (prefers-reduced-motion: reduce) {
+    .new-record { animation: none; background: var(--ink); color: var(--paper); }
+  }
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+
+<div class="screen" id="menuScreen">
+  <div class="panel">
+    <div class="panel-titlebar"><span>BLACKTOP.SYS</span></div>
+    <h1>BLACKTOP</h1>
+    <p class="tagline">a line-art racing game &middot; keyboard required</p>
+    <h2>SELECT TRACK</h2>
+    <div class="tracks" id="trackButtons"></div>
+    <div class="controls-list">
+      <div><b>&uarr; / &darr;</b> gas &amp; brake</div>
+      <div><b>&larr; / &rarr;</b> steer</div>
+      <div><b>V</b> cockpit / hood view</div>
+      <div><b>M</b> engine sound on/off</div>
+      <div><b>P or ESC</b> pause</div>
+    </div>
+    <div class="footer-line"><span>3 laps &middot; dodge the potholes &middot; beat your best time</span><span id="versionTag"></span></div>
+  </div>
+</div>
+
+<div class="screen" id="resultsScreen" hidden>
+  <div class="panel">
+    <div class="panel-titlebar"><span>RACE COMPLETE</span></div>
+    <h2 id="resultTrackName">TRACK</h2>
+    <div class="result-total" id="resultTotal">0:00.00</div>
+    <div id="recordBadge" class="new-record" hidden>&#9733; NEW RECORD &#9733;</div>
+    <table class="splits" id="splitTable"></table>
+    <div class="btn-row">
+      <button id="btnRetry">RACE AGAIN (R)</button>
+      <button id="btnMenu">TRACKS (T)</button>
+    </div>
+    <div class="footer-line"><span id="resultBestLine"></span><span id="versionTag2"></span></div>
+  </div>
+</div>
+
+<div class="screen" id="pauseScreen" hidden>
+  <div class="panel pause-panel">
+    <div class="panel-titlebar"><span>PAUSED</span></div>
+    <h2>PAUSED</h2>
+    <div class="btn-row" style="margin-top:16px">
+      <button id="btnResume">RESUME (P)</button>
+      <button id="btnQuit">QUIT TO TRACKS</button>
+    </div>
+  </div>
+</div>
+
+<script>
+"use strict";
+/* ============================================================
+   BLACKTOP — a line-art racing game
+   Monochrome pseudo-3D racer. Black lines on paper white.
+   ============================================================ */
+const VERSION = "v0.1.0";
+
+/* ---------- constants ---------- */
+const INK = "#1A1A1A";
+const PAPER = "#FAFAF7";
+const SEG_LEN = 100;           // game-distance units per segment
+const SEG_SPACING = 8;         // world-map units between spline samples
+const ROAD_W = 1000;           // half-width of road in world units
+const CURVE_SCALE = 55;        // heading-delta -> pseudo-3D curve strength
+const DRAW_DIST = 90;          // segments rendered ahead
+const FOV = 100;
+const CAM_HEIGHT = 900;
+const MAX_SPEED = 1650;
+const ACCEL = MAX_SPEED / 5.5;
+const BRAKE = -MAX_SPEED / 2.2;
+const COAST = -MAX_SPEED / 10;
+const OFFROAD_DECEL = -MAX_SPEED * 0.9;
+const OFFROAD_CAP = MAX_SPEED * 0.28;
+const POTHOLE_FACTOR = 0.32;   // speed multiplier on hit
+const CENTRIFUGAL = 0.055;
+const TOTAL_LAPS = 3;
+const MPH_FACTOR = 120 / MAX_SPEED;  // top speed reads exactly 120 mph
+
+/* ---------- tiny helpers ---------- */
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+const wrapAngle = a => { while (a > Math.PI) a -= 2 * Math.PI; while (a < -Math.PI) a += 2 * Math.PI; return a; };
+function mulberry32(seed) {
+  return function () {
+    seed |= 0; seed = seed + 0x6D2B79F5 | 0;
+    let t = Math.imul(seed ^ seed >>> 15, 1 | seed);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+}
+function fmtTime(ms) {
+  if (ms == null) return "—";
+  const m = Math.floor(ms / 60000);
+  const s = Math.floor(ms % 60000 / 1000);
+  const c = Math.floor(ms % 1000 / 10);
+  return m + ":" + String(s).padStart(2, "0") + "." + String(c).padStart(2, "0");
+}
+
+/* ---------- track definitions (2D control points) ---------- */
+function lemniscate() {
+  const pts = [];
+  for (let i = 0; i < 36; i++) {
+    const t = i / 36 * Math.PI * 2;
+    const s = Math.sin(t), c = Math.cos(t), d = 1 + s * s;
+    pts.push({ x: 560 * c / d, y: 760 * s * c / d });
+  }
+  return pts;
+}
+const TRACKS = [
+  {
+    id: "figure8", name: "FIGURE EIGHT", seed: 11, potholes: 9,
+    points: lemniscate()
+  },
+  {
+    id: "grand", name: "GRAND CIRCUIT", seed: 23, potholes: 13,
+    points: [
+      [0, 0], [150, -10], [310, 0], [430, 45], [478, 150], [430, 240],
+      [335, 265], [325, 345], [235, 405], [115, 382], [58, 298],
+      [-85, 332], [-175, 258], [-162, 148], [-80, 88], [-58, 18]
+    ].map(p => ({ x: p[0] * 2.1, y: p[1] * 2.1 }))
+  },
+  {
+    id: "hairpin", name: "HAIRPIN RIDGE", seed: 47, potholes: 15,
+    points: [
+      [0, 0], [255, 0], [358, 58], [300, 140], [145, 150], [82, 228],
+      [198, 262], [355, 250], [428, 330], [338, 418], [120, 430],
+      [-62, 400], [-140, 300], [-98, 202], [-178, 118], [-120, 28]
+    ].map(p => ({ x: p[0] * 2.3, y: p[1] * 2.3 }))
+  }
+];
+
+/* ---------- spline resampling ---------- */
+function catmullRom(p0, p1, p2, p3, t) {
+  const t2 = t * t, t3 = t2 * t;
+  return {
+    x: 0.5 * (2 * p1.x + (-p0.x + p2.x) * t + (2 * p0.x - 5 * p1.x + 4 * p2.x - p3.x) * t2 + (-p0.x + 3 * p1.x - 3 * p2.x + p3.x) * t3),
+    y: 0.5 * (2 * p1.y + (-p0.y + p2.y) * t + (2 * p0.y - 5 * p1.y + 4 * p2.y - p3.y) * t2 + (-p0.y + 3 * p1.y - 3 * p2.y + p3.y) * t3)
+  };
+}
+function resampleClosed(pts, spacing) {
+  const fine = [];
+  const n = pts.length;
+  for (let i = 0; i < n; i++) {
+    const p0 = pts[(i - 1 + n) % n], p1 = pts[i], p2 = pts[(i + 1) % n], p3 = pts[(i + 2) % n];
+    for (let j = 0; j < 24; j++) fine.push(catmullRom(p0, p1, p2, p3, j / 24));
+  }
+  const out = [{ x: fine[0].x, y: fine[0].y }];
+  let acc = 0, prev = fine[0];
+  for (let i = 1; i <= fine.length; i++) {
+    let cur = fine[i % fine.length];
+    let d = Math.hypot(cur.x - prev.x, cur.y - prev.y);
+    while (acc + d >= spacing) {
+      const r = (spacing - acc) / d;
+      prev = { x: prev.x + (cur.x - prev.x) * r, y: prev.y + (cur.y - prev.y) * r };
+      out.push({ x: prev.x, y: prev.y });
+      d = Math.hypot(cur.x - prev.x, cur.y - prev.y);
+      acc = 0;
+    }
+    acc += d; prev = cur;
+  }
+  if (out.length > 1) {
+    const a = out[0], b = out[out.length - 1];
+    if (Math.hypot(a.x - b.x, a.y - b.y) < spacing * 0.5) out.pop();
+  }
+  return out;
+}
+
+/* ---------- build a runnable track ---------- */
+function buildTrack(def) {
+  const pts = resampleClosed(def.points, SEG_SPACING);
+  const N = pts.length;
+  const headings = [], curves = [];
+  for (let i = 0; i < N; i++) {
+    const a = pts[i], b = pts[(i + 1) % N];
+    headings.push(Math.atan2(b.y - a.y, b.x - a.x));
+  }
+  for (let i = 0; i < N; i++) {
+    curves.push(wrapAngle(headings[(i + 1) % N] - headings[i]) * CURVE_SCALE);
+  }
+  // light smoothing so hand-drawn corners don't kink
+  const smooth = curves.map((_, i) =>
+    (curves[(i - 1 + N) % N] + curves[i] + curves[(i + 1) % N]) / 3);
+  const segments = smooth.map((c, i) => ({ index: i, curve: c, heading: headings[i] }));
+
+  // potholes: seeded, spread out, never in the first stretch
+  const rng = mulberry32(def.seed);
+  const potholes = [];
+  const minGap = Math.floor(N / (def.potholes * 1.6));
+  let seg = 14 + Math.floor(rng() * 10);
+  for (let k = 0; k < def.potholes && seg < N - 6; k++) {
+    const jag = [];
+    for (let j = 0; j < 8; j++) jag.push(0.75 + rng() * 0.5);
+    potholes.push({
+      z: seg * SEG_LEN + rng() * SEG_LEN,
+      x: -0.68 + rng() * 1.36,
+      size: 0.85 + rng() * 0.5,
+      jag,
+      hitLap: -1
+    });
+    seg += minGap + Math.floor(rng() * minGap);
+  }
+  // map-normalised points for the minimap
+  let minX = 1e9, maxX = -1e9, minY = 1e9, maxY = -1e9;
+  for (const p of pts) {
+    minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x);
+    minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y);
+  }
+  return {
+    def, segments, potholes, pts,
+    length: N * SEG_LEN,
+    bounds: { minX, maxX, minY, maxY }
+  };
+}
+
+/* ---------- persistent best times ---------- */
+function loadBest(id) {
+  try { return JSON.parse(localStorage.getItem("blacktop_best_" + id)); }
+  catch (e) { return null; }
+}
+function saveBest(id, rec) {
+  try { localStorage.setItem("blacktop_best_" + id, JSON.stringify(rec)); } catch (e) {}
+}
+
+/* ---------- audio (simple engine hum) ---------- */
+const audio = { ctx: null, gain: null, osc1: null, osc2: null, on: true };
+function initAudio() {
+  if (audio.ctx || !audio.on) return;
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const gain = ctx.createGain(); gain.gain.value = 0;
+    const filt = ctx.createBiquadFilter(); filt.type = "lowpass"; filt.frequency.value = 500;
+    const o1 = ctx.createOscillator(); o1.type = "sawtooth"; o1.frequency.value = 55;
+    const o2 = ctx.createOscillator(); o2.type = "square"; o2.frequency.value = 28;
+    const g2 = ctx.createGain(); g2.gain.value = 0.4;
+    o1.connect(filt); o2.connect(g2); g2.connect(filt);
+    filt.connect(gain); gain.connect(ctx.destination);
+    o1.start(); o2.start();
+    audio.ctx = ctx; audio.gain = gain; audio.osc1 = o1; audio.osc2 = o2; audio.filt = filt;
+  } catch (e) { /* audio unavailable — play silent */ }
+}
+function updateAudio(speedPct, running) {
+  if (!audio.ctx) return;
+  const t = audio.ctx.currentTime;
+  const target = (running && audio.on) ? 0.035 + speedPct * 0.025 : 0;
+  audio.gain.gain.setTargetAtTime(target, t, 0.08);
+  const f = 50 + speedPct * 145;
+  audio.osc1.frequency.setTargetAtTime(f, t, 0.05);
+  audio.osc2.frequency.setTargetAtTime(f * 0.5, t, 0.05);
+  audio.filt.frequency.setTargetAtTime(400 + speedPct * 900, t, 0.1);
+}
+function thunk() {
+  if (!audio.ctx || !audio.on) return;
+  const ctx = audio.ctx;
+  const len = ctx.sampleRate * 0.12;
+  const buf = ctx.createBuffer(1, len, ctx.sampleRate);
+  const d = buf.getChannelData(0);
+  for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / len);
+  const src = ctx.createBufferSource(); src.buffer = buf;
+  const f = ctx.createBiquadFilter(); f.type = "lowpass"; f.frequency.value = 220;
+  const g = ctx.createGain(); g.gain.value = 0.5;
+  src.connect(f); f.connect(g); g.connect(ctx.destination);
+  src.start();
+}
+
+/* ---------- game state ---------- */
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+let W = 0, H = 0;
+function resize() {
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  W = window.innerWidth; H = window.innerHeight;
+  canvas.width = W * dpr; canvas.height = H * dpr;
+  canvas.style.width = W + "px"; canvas.style.height = H + "px";
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+window.addEventListener("resize", resize);
+resize();
+
+const camDepth = 1 / Math.tan(FOV / 2 * Math.PI / 180);
+const keys = {};
+const G = {
+  state: "menu",          // menu | countdown | racing | finished
+  paused: false,
+  track: null,
+  view: "cockpit",        // cockpit | hood
+  pos: 0, playerX: 0, speed: 0,
+  steerVis: 0,
+  lap: 1, lapStart: 0, splits: [],
+  raceTime: 0, countdownT: 0,
+  shakeT: 0, msg: null, msgT: 0,
+  best: null, finish: null
+};
+
+/* ---------- input ---------- */
+window.addEventListener("keydown", e => {
+  const k = e.key;
+  if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", " "].includes(k)) e.preventDefault();
+  keys[k.length === 1 ? k.toLowerCase() : k] = true;
+
+  if (G.state === "menu") {
+    const n = parseInt(k, 10);
+    if (n >= 1 && n <= TRACKS.length) startRace(TRACKS[n - 1]);
+    return;
+  }
+  if (k === "v" || k === "V") G.view = G.view === "cockpit" ? "hood" : "cockpit";
+  if (k === "m" || k === "M") {
+    audio.on = !audio.on;
+    if (audio.on) initAudio();
+    flashMsg(audio.on ? "SOUND ON" : "SOUND OFF");
+  }
+  if ((k === "p" || k === "P" || k === "Escape") && (G.state === "racing" || G.state === "countdown")) togglePause();
+  if (G.state === "finished") {
+    if (k === "r" || k === "R") startRace(G.track.def);
+    if (k === "t" || k === "T") toMenu();
+  }
+});
+window.addEventListener("keyup", e => {
+  const k = e.key;
+  keys[k.length === 1 ? k.toLowerCase() : k] = false;
+});
+window.addEventListener("blur", () => {
+  if (G.state === "racing" && !G.paused) togglePause();
+});
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden && G.state === "racing" && !G.paused) togglePause();
+});
+
+/* ---------- flow ---------- */
+function flashMsg(text, dur) { G.msg = text; G.msgT = dur || 1.1; }
+
+function startRace(def) {
+  G.track = buildTrack(def);
+  G.best = loadBest(def.id);
+  G.pos = 0; G.playerX = 0; G.speed = 0; G.steerVis = 0;
+  G.lap = 1; G.splits = []; G.raceTime = 0; G.lapStart = 0;
+  G.shakeT = 0; G.msg = null; G.msgT = 0; G.finish = null;
+  for (const ph of G.track.potholes) ph.hitLap = -1;
+  G.state = "countdown"; G.countdownT = 3.2; G.paused = false;
+  initAudio();
+  if (audio.ctx && audio.ctx.state === "suspended") audio.ctx.resume();
+  showScreen(null);
+}
+function toMenu() {
+  G.state = "menu"; G.paused = false;
+  buildMenu();
+  showScreen("menuScreen");
+}
+function togglePause() {
+  G.paused = !G.paused;
+  showScreen(G.paused ? "pauseScreen" : null);
+  if (G.paused) updateAudio(0, false);
+}
+function finishRace() {
+  G.state = "finished";
+  const total = G.raceTime;
+  const rec = { total, splits: G.splits.slice(), date: Date.now() };
+  let isRecord = false;
+  if (!G.best || total < G.best.total) {
+    saveBest(G.track.def.id, rec);
+    isRecord = true;
+  }
+  G.finish = { total, isRecord };
+  updateAudio(0, false);
+  showResults(rec, isRecord);
+}
+
+/* ---------- overlay screens ---------- */
+const screens = {
+  menuScreen: document.getElementById("menuScreen"),
+  resultsScreen: document.getElementById("resultsScreen"),
+  pauseScreen: document.getElementById("pauseScreen")
+};
+function showScreen(id) {
+  for (const key in screens) screens[key].hidden = key !== id;
+  if (id) {
+    const btn = screens[id].querySelector("button");
+    if (btn) btn.focus();
+  }
+}
+function trackThumb(def, w, h) {
+  const c = document.createElement("canvas");
+  c.width = w * 2; c.height = h * 2;
+  c.style.width = w + "px"; c.style.height = h + "px";
+  const cc = c.getContext("2d");
+  cc.scale(2, 2);
+  const pts = resampleClosed(def.points, SEG_SPACING * 3);
+  let minX = 1e9, maxX = -1e9, minY = 1e9, maxY = -1e9;
+  for (const p of pts) {
+    minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x);
+    minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y);
+  }
+  const s = Math.min((w - 10) / (maxX - minX), (h - 10) / (maxY - minY));
+  cc.strokeStyle = INK; cc.lineWidth = 1.5; cc.beginPath();
+  pts.forEach((p, i) => {
+    const x = (p.x - (minX + maxX) / 2) * s + w / 2;
+    const y = (p.y - (minY + maxY) / 2) * s + h / 2;
+    i ? cc.lineTo(x, y) : cc.moveTo(x, y);
+  });
+  cc.closePath(); cc.stroke();
+  return c;
+}
+function buildMenu() {
+  const holder = document.getElementById("trackButtons");
+  holder.innerHTML = "";
+  TRACKS.forEach((def, i) => {
+    const best = loadBest(def.id);
+    const btn = document.createElement("button");
+    btn.className = "track-btn";
+    btn.appendChild(trackThumb(def, 84, 56));
+    const info = document.createElement("div");
+    info.className = "track-info";
+    info.innerHTML = '<div class="track-name">' + def.name + '</div>' +
+      '<div class="best">best ' + (best ? fmtTime(best.total) : "—") + '</div>';
+    btn.appendChild(info);
+    const key = document.createElement("span");
+    key.className = "track-key"; key.textContent = String(i + 1);
+    btn.appendChild(key);
+    btn.addEventListener("click", () => startRace(def));
+    holder.appendChild(btn);
+  });
+  document.getElementById("versionTag").textContent = VERSION;
+}
+function showResults(rec, isRecord) {
+  document.getElementById("resultTrackName").textContent = G.track.def.name;
+  document.getElementById("resultTotal").textContent = fmtTime(rec.total);
+  document.getElementById("recordBadge").hidden = !isRecord;
+  const tbl = document.getElementById("splitTable");
+  tbl.innerHTML = rec.splits.map((s, i) => {
+    const bestLap = Math.min(...rec.splits);
+    return "<tr><td>LAP " + (i + 1) + "</td><td>" + fmtTime(s) + "</td><td>" +
+      (s === bestLap ? "&#9666; fastest" : "") + "</td></tr>";
+  }).join("");
+  const prevBest = isRecord ? (G.best ? G.best.total : null) : loadBest(G.track.def.id).total;
+  document.getElementById("resultBestLine").textContent =
+    isRecord && G.best ? "previous best " + fmtTime(G.best.total)
+      : isRecord ? "first time on record"
+      : "best " + fmtTime(prevBest);
+  document.getElementById("versionTag2").textContent = VERSION;
+  showScreen("resultsScreen");
+}
+document.getElementById("btnRetry").addEventListener("click", () => startRace(G.track.def));
+document.getElementById("btnMenu").addEventListener("click", toMenu);
+document.getElementById("btnResume").addEventListener("click", togglePause);
+document.getElementById("btnQuit").addEventListener("click", () => { G.paused = false; toMenu(); });
+
+/* ---------- physics ---------- */
+function updateRace(dt) {
+  const T = G.track;
+  const speedPct = G.speed / MAX_SPEED;
+  const segIdx = Math.floor(G.pos / SEG_LEN) % T.segments.length;
+  const seg = T.segments[segIdx];
+
+  // steering
+  const steerIn = (keys.ArrowLeft || keys.a ? -1 : 0) + (keys.ArrowRight || keys.d ? 1 : 0);
+  G.steerVis += (steerIn - G.steerVis) * Math.min(1, dt * 10);
+  const dxSteer = dt * 2.1 * speedPct;
+  G.playerX += steerIn * dxSteer;
+  // curves push you outward
+  G.playerX -= dt * speedPct * seg.curve * CENTRIFUGAL;
+
+  // throttle / brake
+  if (keys.ArrowUp || keys.w) G.speed += ACCEL * dt;
+  else if (keys.ArrowDown || keys.s) G.speed += BRAKE * dt;
+  else G.speed += COAST * dt;
+
+  // off-road drag
+  const offroad = Math.abs(G.playerX) > 1;
+  if (offroad && G.speed > OFFROAD_CAP) G.speed += OFFROAD_DECEL * dt;
+  G.playerX = clamp(G.playerX, -2.2, 2.2);
+  G.speed = clamp(G.speed, 0, MAX_SPEED);
+
+  // pothole collisions
+  const prevPos = G.pos;
+  G.pos += G.speed * dt;
+  const nose = 160;
+  for (const ph of T.potholes) {
+    if (ph.hitLap === G.lap) continue;
+    const a = prevPos + nose, b = G.pos + nose + 40;
+    let z = ph.z;
+    if (a > T.length - SEG_LEN * 2 && z < SEG_LEN * 4) z += T.length; // wrap window
+    if (z >= a && z <= b && Math.abs(G.playerX - ph.x) < 0.17 + ph.size * 0.04) {
+      ph.hitLap = G.lap;
+      G.speed *= POTHOLE_FACTOR;
+      G.shakeT = 0.45;
+      flashMsg("POTHOLE!");
+      thunk();
+    }
+  }
+
+  // lap / finish
+  if (G.pos >= T.length) {
+    G.pos -= T.length;
+    G.splits.push(G.raceTime - G.lapStart);
+    G.lapStart = G.raceTime;
+    if (G.lap >= TOTAL_LAPS) { finishRace(); return; }
+    G.lap++;
+    flashMsg("LAP " + G.lap);
+  }
+
+  G.raceTime += dt * 1000;
+  if (G.shakeT > 0) G.shakeT -= dt;
+  if (G.msgT > 0) { G.msgT -= dt; if (G.msgT <= 0) G.msg = null; }
+  updateAudio(speedPct, true);
+}
+
+/* ---------- rendering ---------- */
+function project(worldX, worldY, worldZ, camX, camZ, horizonY) {
+  const dz = Math.max(worldZ - camZ, 1);
+  const scale = camDepth / dz;
+  return {
+    x: W / 2 + scale * (worldX - camX) * (W / 2),
+    y: horizonY - scale * (worldY - CAM_HEIGHT) * (H / 2),
+    scale
+  };
+}
+
+function drawMountains(horizonY, heading) {
+  ctx.strokeStyle = INK; ctx.lineWidth = 1;
+  ctx.beginPath();
+  const off = -heading / (Math.PI * 2) * W * 2.2;
+  let started = false;
+  for (let x = -20; x <= W + 20; x += 14) {
+    const u = (x + off) * 0.011;
+    const yy = horizonY - Math.max(0,
+      Math.sin(u) * 14 + Math.sin(u * 2.7 + 1.4) * 9 + Math.sin(u * 0.6 + 3) * 18 - 6);
+    if (!started) { ctx.moveTo(x, yy); started = true; }
+    else ctx.lineTo(x, yy);
+  }
+  ctx.stroke();
+  // horizon line
+  ctx.beginPath(); ctx.moveTo(0, horizonY); ctx.lineTo(W, horizonY); ctx.stroke();
+}
+
+function drawWorld() {
+  const T = G.track;
+  const N = T.segments.length;
+  const horizonY = H * (G.view === "cockpit" ? 0.42 : 0.46);
+  const camZ = G.pos;
+  const camX = G.playerX * ROAD_W;
+  const baseIdx = Math.floor(camZ / SEG_LEN) % N;
+  const basePct = (camZ % SEG_LEN) / SEG_LEN;
+
+  drawMountains(horizonY, T.segments[baseIdx].heading);
+
+  let x = 0;
+  let dx = -T.segments[baseIdx].curve * basePct;
+  const left = [], right = [], dashes = [], posts = [], phDraws = [];
+  let startBand = null;
+
+  let prevSX = x;
+  for (let n = 0; n < DRAW_DIST; n++) {
+    const idx = (baseIdx + n) % N;
+    const seg = T.segments[idx];
+    const loopOff = (baseIdx + n) >= N ? T.length : 0;
+    const z1 = idx * SEG_LEN + loopOff;
+    const z2 = z1 + SEG_LEN;
+    const p1 = project(x, 0, z1, camX, camZ, horizonY);
+    const p2 = project(x + dx, 0, z2, camX, camZ, horizonY);
+    const rw1 = p1.scale * ROAD_W * (W / 2);
+    const rw2 = p2.scale * ROAD_W * (W / 2);
+
+    if (n === 0) {
+      left.push([p1.x - rw1, p1.y]); right.push([p1.x + rw1, p1.y]);
+    }
+    left.push([p2.x - rw2, p2.y]); right.push([p2.x + rw2, p2.y]);
+
+    if (idx % 3 === 0)
+      dashes.push([p1.x, p1.y, p2.x, p2.y]);
+    if (idx % 8 === 0 && n > 0)
+      posts.push([p1.x - rw1 * 1.14, p1.x + rw1 * 1.14, p1.y, p1.scale]);
+    if (idx === 0)
+      startBand = { p1, p2, rw1, rw2 };
+
+    for (const ph of T.potholes) {
+      if (ph.z >= z1 - loopOff && ph.z < z2 - loopOff && (loopOff === 0 || ph.z < SEG_LEN * (DRAW_DIST))) {
+        const f = (ph.z - (z1 - loopOff)) / SEG_LEN;
+        const px = p1.x + (p2.x - p1.x) * f + ph.x * (rw1 + (rw2 - rw1) * f);
+        const py = p1.y + (p2.y - p1.y) * f;
+        const pr = (rw1 + (rw2 - rw1) * f) * 0.09 * ph.size;
+        phDraws.push({ px, py, pr, ph, far: n });
+      }
+    }
+
+    x += dx;
+    dx += seg.curve;
+  }
+
+  // road edges
+  ctx.strokeStyle = INK;
+  ctx.lineWidth = 2;
+  ctx.lineJoin = "round";
+  for (const side of [left, right]) {
+    ctx.beginPath();
+    // draw near-to-far so join is tidy
+    for (let i = 0; i < side.length; i++) {
+      const p = side[i];
+      i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1]);
+    }
+    ctx.stroke();
+  }
+  // centre dashes
+  ctx.lineWidth = 1.5;
+  for (const d of dashes) {
+    ctx.beginPath();
+    ctx.moveTo(d[0], d[1]);
+    ctx.lineTo(d[0] + (d[2] - d[0]) * 0.55, d[1] + (d[3] - d[1]) * 0.55);
+    ctx.stroke();
+  }
+  // posts
+  ctx.lineWidth = 1.5;
+  for (const p of posts) {
+    const hpx = Math.min(p[3] * 120 * (H / 2), H * 0.09);
+    if (hpx < 1.5) continue;
+    for (const px of [p[0], p[1]]) {
+      ctx.beginPath();
+      ctx.moveTo(px, p[2]); ctx.lineTo(px, p[2] - hpx);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(px, p[2] - hpx, Math.max(1, hpx * 0.09), 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+  // start/finish band
+  if (startBand) {
+    const { p1, p2, rw1, rw2 } = startBand;
+    const cells = 10;
+    ctx.fillStyle = INK;
+    for (let k = 0; k < cells; k++) {
+      if (k % 2) continue;
+      const fa = k / cells, fb = (k + 1) / cells;
+      ctx.beginPath();
+      ctx.moveTo(p1.x - rw1 + rw1 * 2 * fa, p1.y);
+      ctx.lineTo(p1.x - rw1 + rw1 * 2 * fb, p1.y);
+      ctx.lineTo(p2.x - rw2 + rw2 * 2 * fb, p2.y);
+      ctx.lineTo(p2.x - rw2 + rw2 * 2 * fa, p2.y);
+      ctx.closePath(); ctx.fill();
+    }
+  }
+  // potholes, far first
+  phDraws.sort((a, b) => b.far - a.far);
+  ctx.fillStyle = INK;
+  for (const d of phDraws) {
+    if (d.pr < 1) continue;
+    ctx.beginPath();
+    for (let j = 0; j < 8; j++) {
+      const ang = j / 8 * Math.PI * 2;
+      const rr = d.pr * d.ph.jag[j];
+      const xx = d.px + Math.cos(ang) * rr;
+      const yy = d.py + Math.sin(ang) * rr * 0.38;
+      j ? ctx.lineTo(xx, yy) : ctx.moveTo(xx, yy);
+    }
+    ctx.closePath(); ctx.fill();
+  }
+}
+
+/* ---------- cockpit & hood overlays ---------- */
+function drawGauge(cx, cy, r, frac, label, maxLabel, redFrom) {
+  ctx.strokeStyle = INK; ctx.fillStyle = INK;
+  ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  ctx.fillStyle = PAPER; ctx.fill(); ctx.fillStyle = INK; ctx.stroke();
+  const a0 = Math.PI * 0.75, a1 = Math.PI * 2.25;
+  // ticks
+  for (let i = 0; i <= 10; i++) {
+    const a = a0 + (a1 - a0) * i / 10;
+    const inner = i % 2 === 0 ? 0.78 : 0.86;
+    ctx.lineWidth = i % 2 === 0 ? 2 : 1;
+    ctx.beginPath();
+    ctx.moveTo(cx + Math.cos(a) * r * inner, cy + Math.sin(a) * r * inner);
+    ctx.lineTo(cx + Math.cos(a) * r * 0.94, cy + Math.sin(a) * r * 0.94);
+    ctx.stroke();
+  }
+  // red zone (hatched, monochrome)
+  if (redFrom != null) {
+    ctx.lineWidth = 1;
+    for (let f = redFrom; f <= 1.001; f += 0.018) {
+      const a = a0 + (a1 - a0) * f;
+      ctx.beginPath();
+      ctx.moveTo(cx + Math.cos(a) * r * 0.62, cy + Math.sin(a) * r * 0.62);
+      ctx.lineTo(cx + Math.cos(a) * r * 0.74, cy + Math.sin(a) * r * 0.74);
+      ctx.stroke();
+    }
+  }
+  // needle
+  const na = a0 + (a1 - a0) * clamp(frac, 0, 1);
+  ctx.lineWidth = 2.5;
+  ctx.beginPath();
+  ctx.moveTo(cx - Math.cos(na) * r * 0.12, cy - Math.sin(na) * r * 0.12);
+  ctx.lineTo(cx + Math.cos(na) * r * 0.72, cy + Math.sin(na) * r * 0.72);
+  ctx.stroke();
+  ctx.beginPath(); ctx.arc(cx, cy, r * 0.07, 0, Math.PI * 2); ctx.fill();
+  // labels
+  ctx.font = "700 " + Math.round(r * 0.22) + "px ui-monospace, Menlo, monospace";
+  ctx.textAlign = "center";
+  ctx.fillText(label, cx, cy + r * 0.55);
+  ctx.font = Math.round(r * 0.18) + "px ui-monospace, Menlo, monospace";
+  ctx.fillText("0", cx - r * 0.62, cy + r * 0.72);
+  ctx.fillText(maxLabel, cx + r * 0.62, cy + r * 0.72);
+}
+
+function drawCockpit() {
+  const dashTop = H * 0.68;
+  const speedPct = G.speed / MAX_SPEED;
+  // dash body
+  ctx.fillStyle = PAPER; ctx.strokeStyle = INK; ctx.lineWidth = 2.5;
+  ctx.beginPath();
+  ctx.moveTo(0, dashTop + H * 0.05);
+  ctx.quadraticCurveTo(W / 2, dashTop - H * 0.045, W, dashTop + H * 0.05);
+  ctx.lineTo(W, H); ctx.lineTo(0, H); ctx.closePath();
+  ctx.fill(); ctx.stroke();
+  // A-pillars
+  ctx.lineWidth = 2.5;
+  ctx.fillStyle = PAPER;
+  ctx.beginPath();
+  ctx.moveTo(0, 0); ctx.lineTo(W * 0.075, 0); ctx.lineTo(W * 0.015, dashTop + H * 0.05); ctx.lineTo(0, dashTop);
+  ctx.closePath(); ctx.fill(); ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(W, 0); ctx.lineTo(W * 0.925, 0); ctx.lineTo(W * 0.985, dashTop + H * 0.05); ctx.lineTo(W, dashTop);
+  ctx.closePath(); ctx.fill(); ctx.stroke();
+  // windshield header
+  ctx.beginPath();
+  ctx.moveTo(W * 0.075, 0); ctx.lineTo(W * 0.925, 0);
+  ctx.lineTo(W * 0.918, H * 0.045); ctx.lineTo(W * 0.082, H * 0.045);
+  ctx.closePath(); ctx.fill(); ctx.stroke();
+  // rearview mirror
+  ctx.beginPath();
+  ctx.rect(W * 0.44, H * 0.055, W * 0.12, H * 0.045);
+  ctx.fill(); ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(W * 0.5, H * 0.045); ctx.lineTo(W * 0.5, H * 0.055);
+  ctx.stroke();
+  // steering wheel
+  const wcx = W * 0.5, wcy = H * 1.14, wr = H * 0.36;
+  ctx.save();
+  ctx.translate(wcx, wcy);
+  ctx.rotate(G.steerVis * 0.55);
+  ctx.lineWidth = H * 0.018;
+  ctx.beginPath(); ctx.arc(0, 0, wr, 0, Math.PI * 2); ctx.stroke();
+  ctx.lineWidth = H * 0.012;
+  for (const a of [-Math.PI / 2, Math.PI * 0.16, Math.PI * 0.84]) {
+    ctx.beginPath();
+    ctx.moveTo(Math.cos(a) * wr * 0.18, Math.sin(a) * wr * 0.18);
+    ctx.lineTo(Math.cos(a) * wr * 0.94, Math.sin(a) * wr * 0.94);
+    ctx.stroke();
+  }
+  ctx.beginPath(); ctx.arc(0, 0, wr * 0.15, 0, Math.PI * 2);
+  ctx.fillStyle = PAPER; ctx.fill(); ctx.lineWidth = H * 0.008; ctx.stroke();
+  ctx.restore();
+  // gauges
+  const gr = H * 0.085;
+  const gy = dashTop + H * 0.135;
+  drawGauge(W * 0.26, gy, gr, speedPct, "MPH", "120", null);
+  const gear = Math.min(3, Math.floor(speedPct * 3.999));
+  const within = speedPct <= 0 ? 0 : speedPct * 4 - gear;
+  drawGauge(W * 0.74, gy, gr, 0.12 + within * 0.78, "RPM×1K", "8", 0.82);
+}
+
+function drawHood() {
+  ctx.fillStyle = PAPER; ctx.strokeStyle = INK; ctx.lineWidth = 2.5;
+  const topY = H * 0.80, spread = W * 0.20;
+  ctx.beginPath();
+  ctx.moveTo(-W * 0.08, H + 4);
+  ctx.quadraticCurveTo(W * 0.5 - spread, topY + H * 0.02, W * 0.5 - spread * 0.8, topY);
+  ctx.quadraticCurveTo(W * 0.5, topY - H * 0.025, W * 0.5 + spread * 0.8, topY);
+  ctx.quadraticCurveTo(W * 0.5 + spread, topY + H * 0.02, W * 1.08, H + 4);
+  ctx.closePath();
+  ctx.fill(); ctx.stroke();
+  // crease lines
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.moveTo(W * 0.5, topY - H * 0.012); ctx.lineTo(W * 0.5, H);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(W * 0.5 - spread * 0.55, topY + H * 0.04); ctx.lineTo(W * 0.32, H);
+  ctx.moveTo(W * 0.5 + spread * 0.55, topY + H * 0.04); ctx.lineTo(W * 0.68, H);
+  ctx.stroke();
+  // hood ornament
+  ctx.beginPath(); ctx.arc(W * 0.5, topY - H * 0.006, 3.2, 0, Math.PI * 2);
+  ctx.fillStyle = INK; ctx.fill();
+  // speed readout on hood
+  ctx.font = "700 " + Math.round(H * 0.034) + "px ui-monospace, Menlo, monospace";
+  ctx.fillStyle = INK; ctx.textAlign = "center";
+  ctx.fillText(Math.round(G.speed * MPH_FACTOR) + " MPH", W * 0.5, H * 0.93);
+}
+
+/* ---------- HUD ---------- */
+function drawMinimap() {
+  const T = G.track;
+  const size = Math.min(150, W * 0.22), pad = 14;
+  const bx = pad, by = pad;
+  ctx.fillStyle = "rgba(250,250,247,0.85)";
+  ctx.strokeStyle = INK; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.rect(bx, by, size, size * 0.78);
+  ctx.fill(); ctx.stroke();
+  const b = T.bounds;
+  const s = Math.min((size - 24) / (b.maxX - b.minX), (size * 0.78 - 24) / (b.maxY - b.minY));
+  const cx = bx + size / 2, cy = by + size * 0.39;
+  const mapX = p => cx + (p.x - (b.minX + b.maxX) / 2) * s;
+  const mapY = p => cy + (p.y - (b.minY + b.maxY) / 2) * s;
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  T.pts.forEach((p, i) => i ? ctx.lineTo(mapX(p), mapY(p)) : ctx.moveTo(mapX(p), mapY(p)));
+  ctx.closePath(); ctx.stroke();
+  // start tick
+  const p0 = T.pts[0], h0 = T.segments[0].heading;
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(mapX(p0) + Math.cos(h0 + Math.PI / 2) * 5, mapY(p0) + Math.sin(h0 + Math.PI / 2) * 5);
+  ctx.lineTo(mapX(p0) - Math.cos(h0 + Math.PI / 2) * 5, mapY(p0) - Math.sin(h0 + Math.PI / 2) * 5);
+  ctx.stroke();
+  // car dot
+  const fi = G.pos / SEG_LEN;
+  const i0 = Math.floor(fi) % T.pts.length, i1 = (i0 + 1) % T.pts.length, f = fi - Math.floor(fi);
+  const px = mapX({ x: T.pts[i0].x + (T.pts[i1].x - T.pts[i0].x) * f, y: 0 });
+  const py = mapY({ x: 0, y: T.pts[i0].y + (T.pts[i1].y - T.pts[i0].y) * f });
+  ctx.beginPath(); ctx.arc(px, py, 4, 0, Math.PI * 2);
+  ctx.fillStyle = INK; ctx.fill();
+  ctx.beginPath(); ctx.arc(px, py, 6.5, 0, Math.PI * 2);
+  ctx.lineWidth = 1; ctx.strokeStyle = INK; ctx.stroke();
+}
+
+function drawHUD() {
+  const pad = 14;
+  ctx.textAlign = "right";
+  ctx.fillStyle = INK;
+  const lines = [
+    ["TIME", fmtTime(G.raceTime)],
+    ["LAP", G.lap + "/" + TOTAL_LAPS],
+    ["LAST", G.splits.length ? fmtTime(G.splits[G.splits.length - 1]) : "—"],
+    ["BEST", G.best ? fmtTime(G.best.total) : "—"]
+  ];
+  const fs = Math.max(13, Math.min(17, H * 0.022));
+  ctx.font = "700 " + fs + "px ui-monospace, Menlo, monospace";
+  const boxW = fs * 11, lineH = fs * 1.5;
+  ctx.fillStyle = "rgba(250,250,247,0.85)";
+  ctx.strokeStyle = INK; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.rect(W - pad - boxW, pad, boxW, lineH * lines.length + fs * 0.9);
+  ctx.fill(); ctx.stroke();
+  ctx.fillStyle = INK;
+  lines.forEach((l, i) => {
+    const y = pad + fs * 1.35 + i * lineH;
+    ctx.textAlign = "left";
+    ctx.fillText(l[0], W - pad - boxW + fs * 0.7, y);
+    ctx.textAlign = "right";
+    ctx.fillText(l[1], W - pad - fs * 0.7, y);
+  });
+  // flash message
+  if (G.msg) {
+    ctx.textAlign = "center";
+    const mfs = Math.round(H * 0.045);
+    ctx.font = "700 " + mfs + "px ui-monospace, Menlo, monospace";
+    const tw = ctx.measureText(G.msg).width;
+    ctx.fillStyle = PAPER;
+    ctx.strokeStyle = INK; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.rect(W / 2 - tw / 2 - 16, H * 0.16 - mfs, tw + 32, mfs * 1.5);
+    ctx.fill(); ctx.stroke();
+    ctx.fillStyle = INK;
+    ctx.fillText(G.msg, W / 2, H * 0.16 + mfs * 0.15);
+  }
+}
+
+function drawCountdown() {
+  const n = Math.ceil(G.countdownT - 0.2);
+  const label = n <= 0 ? "GO!" : String(n);
+  ctx.textAlign = "center";
+  const fs = Math.round(H * 0.2);
+  ctx.font = "700 " + fs + "px ui-monospace, Menlo, monospace";
+  ctx.lineWidth = 3;
+  ctx.strokeStyle = INK;
+  ctx.fillStyle = PAPER;
+  const y = H * 0.42;
+  ctx.strokeText(label, W / 2, y);
+  ctx.fillStyle = INK;
+  ctx.fillText(label, W / 2, y);
+}
+
+/* ---------- main loop ---------- */
+let lastT = performance.now();
+function frame(now) {
+  requestAnimationFrame(frame);
+  const dt = Math.min((now - lastT) / 1000, 0.05);
+  lastT = now;
+
+  ctx.fillStyle = PAPER;
+  ctx.fillRect(0, 0, W, H);
+
+  if (G.state === "menu") {
+    // faint demo road behind the menu panel
+    return;
+  }
+  if (G.paused) { renderScene(); return; }
+
+  if (G.state === "countdown") {
+    G.countdownT -= dt;
+    if (G.countdownT <= -0.6) { G.state = "racing"; flashMsg("LAP 1"); }
+    updateAudio(0.12, true);
+  } else if (G.state === "racing") {
+    updateRace(dt);
+  }
+  renderScene();
+  if (G.state === "countdown") drawCountdown();
+}
+function renderScene() {
+  if (!G.track) return;
+  ctx.save();
+  if (G.shakeT > 0) {
+    const s = G.shakeT / 0.45 * 7;
+    ctx.translate((Math.random() - 0.5) * s * 2, (Math.random() - 0.5) * s * 2);
+  } else if (Math.abs(G.playerX) > 1 && G.speed > MAX_SPEED * 0.05 && G.state === "racing") {
+    ctx.translate((Math.random() - 0.5) * 3, (Math.random() - 0.5) * 3);
+  }
+  drawWorld();
+  if (G.view === "cockpit") drawCockpit(); else drawHood();
+  ctx.restore();
+  if (G.state !== "finished") { drawMinimap(); drawHUD(); }
+}
+
+buildMenu();
+showScreen("menuScreen");
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
