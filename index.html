@@ -233,7 +233,7 @@
    BLACKTOP — a line-art racing game
    Monochrome pseudo-3D racer. Black lines on paper white.
    ============================================================ */
-const VERSION = "v0.4.0";
+const VERSION = "v0.4.1";
 
 /* ---------- constants ---------- */
 const INK = "#1A1A1A";
@@ -1038,7 +1038,7 @@ function drawCockpit() {
     ctx.stroke();
   }
   // steering wheel (width-capped so it fits portrait phones)
-  const wcx = W * 0.5, wcy = H * 1.14, wr = Math.min(H * 0.36, W * 0.40);
+  const wcx = W * 0.5, wcy = H * 1.14, wr = Math.min(H * 0.36, W * 0.52);
   ctx.save();
   ctx.translate(wcx, wcy);
   ctx.rotate(G.steerVis * 0.55);
@@ -1054,26 +1054,28 @@ function drawCockpit() {
   ctx.beginPath(); ctx.arc(0, 0, wr * 0.15, 0, Math.PI * 2);
   ctx.fillStyle = PAPER; ctx.fill(); ctx.lineWidth = wr * 0.022; ctx.stroke();
   ctx.restore();
-  // gauges — touch: small, tucked into the dash's upper corners, clear of
-  // the pedal cluster and wheel; desktop: classic positions
-  let gr, gy, gx1, gx2;
-  if (IS_TOUCH) {
-    gr = Math.min(H * 0.07, W * 0.105);
-    gy = dashTop + H * 0.04 + gr * 0.75;
-    gx1 = SAFE.l + gr * 1.3;
-    gx2 = W - SAFE.r - gr * 1.3;
-    if (gy + gr > H - 150) gx1 = Math.max(gx1, SAFE.l + 224 + gr); // pedals live lower-left
-  } else {
-    const compact = W < 940;
-    gr = H * 0.085;
-    gy = dashTop + H * 0.135;
-    gx1 = W * (compact ? 0.37 : 0.26);
-    gx2 = W * (compact ? 0.63 : 0.74);
-  }
-  drawGauge(gx1, gy, gr, speedPct, "MPH", "120", null);
+  // gauges
   const gear = Math.min(3, Math.floor(speedPct * 3.999));
   const within = speedPct <= 0 ? 0 : speedPct * 4 - gear;
-  drawGauge(gx2, gy, gr, 0.12 + within * 0.78, "RPM×1K", "8", 0.82);
+  const rpmFrac = 0.12 + within * 0.78;
+  if (IS_TOUCH) {
+    // speedometer left on the dash brow (right of the pedals when they'd
+    // collide, i.e. short landscape); tachometer smaller, upper right
+    const gr = Math.min(H * 0.07, W * 0.105);
+    const gy = dashTop + H * 0.05 + gr * 0.55;
+    let gx1 = SAFE.l + gr * 1.3;
+    if (gy + gr > H - 116) gx1 = SAFE.l + 224 + gr; // 116 = brake height + margins
+    drawGauge(gx1, gy, gr, speedPct, "MPH", "120", null);
+    const grT = gr * 0.7;
+    drawGauge(W - SAFE.r - grT * 1.7, dashTop + H * 0.05 + grT * 0.55, grT,
+      rpmFrac, "RPM", "8", 0.82);
+  } else {
+    const compact = W < 940;
+    const gr = H * 0.085;
+    const gy = dashTop + H * 0.135;
+    drawGauge(W * (compact ? 0.37 : 0.26), gy, gr, speedPct, "MPH", "120", null);
+    drawGauge(W * (compact ? 0.63 : 0.74), gy, gr, rpmFrac, "RPM×1K", "8", 0.82);
+  }
 }
 
 function drawHood() {
