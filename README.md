@@ -22,7 +22,9 @@ looked on the classic Macintosh. An homage to a game my dad made years ago.
 | P or Esc | pause |
 
 On phones and tablets, on-screen touch controls appear automatically:
-hold GAS/BRAKE on the right, steer with ◀ ▶ on the left, and use the
-VIEW / SOUND / pause row at the top. Landscape recommended.
+hold GAS/BRAKE in the lower left, steer by dragging anywhere on the road
+(or the steering wheel itself), and use the VIEW / SOUND / PAUSE buttons
+by the map. Landscape recommended. Add `?touch=1` to the URL to force
+touch controls on a desktop browser.
 
 Single self-contained HTML file, no dependencies.

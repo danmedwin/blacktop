@@ -10,6 +10,10 @@
     --paper: #FAFAF7;
     --ink: #1A1A1A;
     --ink-soft: #55554F;
+    --safe-t: env(safe-area-inset-top, 0px);
+    --safe-l: env(safe-area-inset-left, 0px);
+    --safe-r: env(safe-area-inset-right, 0px);
+    --safe-b: env(safe-area-inset-bottom, 0px);
   }
   * { margin: 0; padding: 0; box-sizing: border-box; }
   html, body { height: 100%; overflow: hidden; overscroll-behavior: none; }
@@ -139,19 +143,26 @@
   }
   #touchControls button.held,
   #touchControls button:active { background: var(--ink); color: var(--paper); }
-  #tcLeft  { left: calc(14px + env(safe-area-inset-left)); bottom: calc(14px + env(safe-area-inset-bottom)); width: 86px; height: 86px; font-size: 30px; }
-  #tcRight { left: calc(110px + env(safe-area-inset-left)); bottom: calc(14px + env(safe-area-inset-bottom)); width: 86px; height: 86px; font-size: 30px; }
-  #tcBrake { right: calc(124px + env(safe-area-inset-right)); bottom: calc(14px + env(safe-area-inset-bottom)); width: 86px; height: 86px; font-size: 13px; }
-  #tcGas   { right: calc(14px + env(safe-area-inset-right)); bottom: calc(14px + env(safe-area-inset-bottom)); width: 100px; height: 120px; font-size: 16px; }
-  #tcTopRow {
+  /* pedals cluster, lower-left (brake left of gas, like a car) */
+  #tcBrake { left: calc(14px + var(--safe-l)); bottom: calc(14px + var(--safe-b)); width: 88px; height: 96px; font-size: 13px; }
+  #tcGas   { left: calc(112px + var(--safe-l)); bottom: calc(14px + var(--safe-b)); width: 108px; height: 128px; font-size: 16px; }
+  /* view/sound/pause stacked under the minimap */
+  #tcStack {
     position: fixed;
-    top: calc(12px + env(safe-area-inset-top));
-    left: 50%;
-    transform: translateX(-50%);
-    display: flex; gap: 8px;
+    left: calc(14px + var(--safe-l));
+    top: calc(26px + var(--safe-t) + min(150px, 22vw) * 0.78);
+    display: flex; flex-direction: column; gap: 8px;
     z-index: 5;
   }
-  #tcTopRow button { position: static; height: 40px; font-size: 12px; padding: 0 12px; }
+  #tcStack button { position: static; height: 42px; width: min(150px, 22vw); font-size: 12px; }
+  /* short landscape (phones sideways): pedals own the lower-left, so the
+     stack moves beside the map instead of under it */
+  @media (orientation: landscape) and (max-height: 500px) {
+    #tcStack {
+      left: calc(22px + var(--safe-l) + min(150px, 22vw));
+      top: calc(14px + var(--safe-t));
+    }
+  }
   #rotateHint { display: none; font-size: 12px; color: var(--ink-soft); margin: -14px 0 18px; }
   @media (pointer: coarse) and (orientation: portrait) {
     #rotateHint { display: block; }
@@ -162,14 +173,12 @@
 <canvas id="game"></canvas>
 
 <div id="touchControls" hidden>
-  <button id="tcLeft" aria-label="steer left">&#9664;</button>
-  <button id="tcRight" aria-label="steer right">&#9654;</button>
   <button id="tcBrake" aria-label="brake">BRAKE</button>
   <button id="tcGas" aria-label="gas">GAS</button>
-  <div id="tcTopRow">
+  <div id="tcStack">
     <button id="tcView">VIEW</button>
     <button id="tcSound">SOUND</button>
-    <button id="tcPause">&#10074;&#10074;</button>
+    <button id="tcPause">PAUSE</button>
   </div>
 </div>
 
@@ -224,7 +233,7 @@
    BLACKTOP — a line-art racing game
    Monochrome pseudo-3D racer. Black lines on paper white.
    ============================================================ */
-const VERSION = "v0.3.0";
+const VERSION = "v0.4.0";
 
 /* ---------- constants ---------- */
 const INK = "#1A1A1A";
@@ -473,12 +482,17 @@ function thunk() {
 const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
 let W = 0, H = 0;
+const SAFE = { t: 0, l: 0, r: 0 };
 function resize() {
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
   W = window.innerWidth; H = window.innerHeight;
   canvas.width = W * dpr; canvas.height = H * dpr;
   canvas.style.width = W + "px"; canvas.style.height = H + "px";
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const cs = getComputedStyle(document.documentElement);
+  SAFE.t = parseFloat(cs.getPropertyValue("--safe-t")) || 0;
+  SAFE.l = parseFloat(cs.getPropertyValue("--safe-l")) || 0;
+  SAFE.r = parseFloat(cs.getPropertyValue("--safe-r")) || 0;
 }
 window.addEventListener("resize", resize);
 resize();
@@ -491,7 +505,7 @@ const G = {
   track: null,
   view: "cockpit",        // cockpit | hood
   pos: 0, playerX: 0, speed: 0,
-  steerVis: 0,
+  steerVis: 0, touchSteer: 0,
   lap: 1, lapStart: 0, splits: [],
   raceTime: 0, countdownT: 0,
   shakeT: 0, msg: null, msgT: 0,
@@ -535,7 +549,8 @@ function toggleSound() {
 }
 
 /* ---------- touch controls ---------- */
-const IS_TOUCH = window.matchMedia("(pointer: coarse)").matches || "ontouchstart" in window;
+const IS_TOUCH = /[?&]touch=1/.test(location.search) ||
+  window.matchMedia("(pointer: coarse)").matches || "ontouchstart" in window;
 const touchControls = document.getElementById("touchControls");
 function updateTouchUI() {
   touchControls.hidden = !(IS_TOUCH && !G.paused &&
@@ -555,8 +570,24 @@ function bindHold(id, key) {
 }
 bindHold("tcGas", "ArrowUp");
 bindHold("tcBrake", "ArrowDown");
-bindHold("tcLeft", "ArrowLeft");
-bindHold("tcRight", "ArrowRight");
+// drag anywhere on the road (or the wheel) to steer; release recenters
+let steerPointer = null, steerStartX = 0;
+canvas.addEventListener("pointerdown", e => {
+  if (!IS_TOUCH || (G.state !== "racing" && G.state !== "countdown")) return;
+  if (steerPointer !== null) return;
+  e.preventDefault();
+  steerPointer = e.pointerId; steerStartX = e.clientX;
+  try { canvas.setPointerCapture(e.pointerId); } catch (err) {}
+});
+canvas.addEventListener("pointermove", e => {
+  if (e.pointerId !== steerPointer) return;
+  G.touchSteer = clamp((e.clientX - steerStartX) / (Math.min(W, H) * 0.18), -1, 1);
+});
+function endSteer(e) {
+  if (e.pointerId === steerPointer) { steerPointer = null; G.touchSteer = 0; }
+}
+canvas.addEventListener("pointerup", endSteer);
+canvas.addEventListener("pointercancel", endSteer);
 document.getElementById("tcView").addEventListener("click", toggleView);
 document.getElementById("tcSound").addEventListener("click", toggleSound);
 document.getElementById("tcPause").addEventListener("click", () => {
@@ -569,7 +600,7 @@ function flashMsg(text, dur) { G.msg = text; G.msgT = dur || 1.1; }
 function startRace(def) {
   G.track = buildTrack(def);
   G.best = loadBest(def.id);
-  G.pos = 0; G.playerX = 0; G.speed = 0; G.steerVis = 0;
+  G.pos = 0; G.playerX = 0; G.speed = 0; G.steerVis = 0; G.touchSteer = 0;
   G.lap = 1; G.splits = []; G.raceTime = 0; G.lapStart = 0;
   G.shakeT = 0; G.msg = null; G.msgT = 0; G.finish = null;
   for (const ph of G.track.potholes) ph.hitLap = -1;
@@ -659,9 +690,9 @@ function buildMenu() {
   });
   if (IS_TOUCH) {
     document.querySelector(".controls-list").innerHTML =
-      "<div><b>GAS/BRAKE</b> hold the right-side buttons</div>" +
-      "<div><b>&#9664; &#9654;</b> hold to steer</div>" +
-      "<div><b>TOP ROW</b> view &middot; sound &middot; pause</div>";
+      "<div><b>GAS/BRAKE</b> hold the buttons, lower left</div>" +
+      "<div><b>STEER</b> drag the road (or the wheel)</div>" +
+      "<div><b>UNDER MAP</b> view &middot; sound &middot; pause</div>";
   }
   document.getElementById("versionTag").textContent = VERSION;
 }
@@ -695,8 +726,9 @@ function updateRace(dt) {
   const segIdx = Math.floor(G.pos / SEG_LEN) % T.segments.length;
   const seg = T.segments[segIdx];
 
-  // steering
-  const steerIn = (keys.ArrowLeft || keys.a ? -1 : 0) + (keys.ArrowRight || keys.d ? 1 : 0);
+  // steering (keys are digital ±1; touch drag is analog)
+  const steerKeys = (keys.ArrowLeft || keys.a ? -1 : 0) + (keys.ArrowRight || keys.d ? 1 : 0);
+  const steerIn = clamp(steerKeys + G.touchSteer, -1, 1);
   G.steerVis += (steerIn - G.steerVis) * Math.min(1, dt * 10);
   const dxSteer = dt * 2.1 * speedPct;
   G.playerX += steerIn * dxSteer;
@@ -1005,14 +1037,14 @@ function drawCockpit() {
     ctx.moveTo(W * 0.5, H * 0.045); ctx.lineTo(W * 0.5, H * 0.055);
     ctx.stroke();
   }
-  // steering wheel
-  const wcx = W * 0.5, wcy = H * 1.14, wr = H * 0.36;
+  // steering wheel (width-capped so it fits portrait phones)
+  const wcx = W * 0.5, wcy = H * 1.14, wr = Math.min(H * 0.36, W * 0.40);
   ctx.save();
   ctx.translate(wcx, wcy);
   ctx.rotate(G.steerVis * 0.55);
-  ctx.lineWidth = H * 0.018;
+  ctx.lineWidth = wr * 0.05;
   ctx.beginPath(); ctx.arc(0, 0, wr, 0, Math.PI * 2); ctx.stroke();
-  ctx.lineWidth = H * 0.012;
+  ctx.lineWidth = wr * 0.033;
   for (const a of [-Math.PI / 2, Math.PI * 0.16, Math.PI * 0.84]) {
     ctx.beginPath();
     ctx.moveTo(Math.cos(a) * wr * 0.18, Math.sin(a) * wr * 0.18);
@@ -1020,16 +1052,28 @@ function drawCockpit() {
     ctx.stroke();
   }
   ctx.beginPath(); ctx.arc(0, 0, wr * 0.15, 0, Math.PI * 2);
-  ctx.fillStyle = PAPER; ctx.fill(); ctx.lineWidth = H * 0.008; ctx.stroke();
+  ctx.fillStyle = PAPER; ctx.fill(); ctx.lineWidth = wr * 0.022; ctx.stroke();
   ctx.restore();
-  // gauges (inset toward center on narrow/touch screens so corner buttons stay clear)
-  const compact = IS_TOUCH || W < 940;
-  const gr = H * 0.085;
-  const gy = dashTop + H * 0.135;
-  drawGauge(W * (compact ? 0.37 : 0.26), gy, gr, speedPct, "MPH", "120", null);
+  // gauges — touch: small, tucked into the dash's upper corners, clear of
+  // the pedal cluster and wheel; desktop: classic positions
+  let gr, gy, gx1, gx2;
+  if (IS_TOUCH) {
+    gr = Math.min(H * 0.07, W * 0.105);
+    gy = dashTop + H * 0.04 + gr * 0.75;
+    gx1 = SAFE.l + gr * 1.3;
+    gx2 = W - SAFE.r - gr * 1.3;
+    if (gy + gr > H - 150) gx1 = Math.max(gx1, SAFE.l + 224 + gr); // pedals live lower-left
+  } else {
+    const compact = W < 940;
+    gr = H * 0.085;
+    gy = dashTop + H * 0.135;
+    gx1 = W * (compact ? 0.37 : 0.26);
+    gx2 = W * (compact ? 0.63 : 0.74);
+  }
+  drawGauge(gx1, gy, gr, speedPct, "MPH", "120", null);
   const gear = Math.min(3, Math.floor(speedPct * 3.999));
   const within = speedPct <= 0 ? 0 : speedPct * 4 - gear;
-  drawGauge(W * (compact ? 0.63 : 0.74), gy, gr, 0.12 + within * 0.78, "RPM×1K", "8", 0.82);
+  drawGauge(gx2, gy, gr, 0.12 + within * 0.78, "RPM×1K", "8", 0.82);
 }
 
 function drawHood() {
@@ -1054,17 +1098,23 @@ function drawHood() {
   // hood ornament
   ctx.beginPath(); ctx.arc(W * 0.5, topY - H * 0.006, 3.2, 0, Math.PI * 2);
   ctx.fillStyle = INK; ctx.fill();
-  // speed readout on hood
+  // speed readout on hood (bottom-right on touch — pedals own the lower-left)
   ctx.font = "700 " + Math.round(H * 0.034) + "px ui-monospace, Menlo, monospace";
-  ctx.fillStyle = INK; ctx.textAlign = "center";
-  ctx.fillText(Math.round(G.speed * MPH_FACTOR) + " MPH", W * 0.5, H * 0.93);
+  ctx.fillStyle = INK;
+  if (IS_TOUCH) {
+    ctx.textAlign = "right";
+    ctx.fillText(Math.round(G.speed * MPH_FACTOR) + " MPH", W - 18 - SAFE.r, H - 22);
+  } else {
+    ctx.textAlign = "center";
+    ctx.fillText(Math.round(G.speed * MPH_FACTOR) + " MPH", W * 0.5, H * 0.93);
+  }
 }
 
 /* ---------- HUD ---------- */
 function drawMinimap() {
   const T = G.track;
   const size = Math.min(150, W * 0.22), pad = 14;
-  const bx = pad, by = pad;
+  const bx = pad + SAFE.l, by = pad + SAFE.t;
   ctx.fillStyle = "rgba(250,250,247,0.85)";
   ctx.strokeStyle = INK; ctx.lineWidth = 2;
   ctx.beginPath(); ctx.rect(bx, by, size, size * 0.78);
@@ -1109,17 +1159,18 @@ function drawHUD() {
   const fs = Math.max(13, Math.min(17, H * 0.022));
   ctx.font = "700 " + fs + "px ui-monospace, Menlo, monospace";
   const boxW = fs * 11, lineH = fs * 1.5;
+  const hx = W - pad - SAFE.r - boxW, hy = pad + SAFE.t;
   ctx.fillStyle = "rgba(250,250,247,0.85)";
   ctx.strokeStyle = INK; ctx.lineWidth = 2;
-  ctx.beginPath(); ctx.rect(W - pad - boxW, pad, boxW, lineH * lines.length + fs * 0.9);
+  ctx.beginPath(); ctx.rect(hx, hy, boxW, lineH * lines.length + fs * 0.9);
   ctx.fill(); ctx.stroke();
   ctx.fillStyle = INK;
   lines.forEach((l, i) => {
-    const y = pad + fs * 1.35 + i * lineH;
+    const y = hy + fs * 1.35 + i * lineH;
     ctx.textAlign = "left";
-    ctx.fillText(l[0], W - pad - boxW + fs * 0.7, y);
+    ctx.fillText(l[0], hx + fs * 0.7, y);
     ctx.textAlign = "right";
-    ctx.fillText(l[1], W - pad - fs * 0.7, y);
+    ctx.fillText(l[1], hx + boxW - fs * 0.7, y);
   });
   // key legend, bottom-left (touch devices get on-screen buttons instead)
   if (!IS_TOUCH) {
