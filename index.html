@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>Blacktop — a line-art racing game</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='13' fill='none' stroke='%231A1A1A' stroke-width='3'/%3E%3Ccircle cx='16' cy='16' r='3' fill='%231A1A1A'/%3E%3Cpath d='M16 16 L16 4 M16 16 L5 22 M16 16 L27 22' stroke='%231A1A1A' stroke-width='3'/%3E%3C/svg%3E">
 <style>
@@ -12,13 +12,13 @@
     --ink-soft: #55554F;
   }
   * { margin: 0; padding: 0; box-sizing: border-box; }
-  html, body { height: 100%; overflow: hidden; }
+  html, body { height: 100%; overflow: hidden; overscroll-behavior: none; }
   body {
     background: var(--paper);
     color: var(--ink);
     font-family: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
   }
-  #game { display: block; width: 100vw; height: 100vh; }
+  #game { display: block; width: 100vw; height: 100vh; touch-action: none; }
 
   /* ---------- overlay screens (retro-Mac window style) ---------- */
   .screen {
@@ -119,17 +119,67 @@
   @media (prefers-reduced-motion: reduce) {
     .new-record { animation: none; background: var(--ink); color: var(--paper); }
   }
+
+  /* ---------- touch controls ---------- */
+  #touchControls button {
+    position: fixed;
+    z-index: 5;
+    background: rgba(250, 250, 247, 0.78);
+    border: 2px solid var(--ink);
+    color: var(--ink);
+    font-family: inherit;
+    font-weight: 700;
+    display: flex; align-items: center; justify-content: center;
+    padding: 0;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-touch-callout: none;
+    touch-action: none;
+    transition: none;
+  }
+  #touchControls button.held,
+  #touchControls button:active { background: var(--ink); color: var(--paper); }
+  #tcLeft  { left: calc(14px + env(safe-area-inset-left)); bottom: calc(14px + env(safe-area-inset-bottom)); width: 86px; height: 86px; font-size: 30px; }
+  #tcRight { left: calc(110px + env(safe-area-inset-left)); bottom: calc(14px + env(safe-area-inset-bottom)); width: 86px; height: 86px; font-size: 30px; }
+  #tcBrake { right: calc(124px + env(safe-area-inset-right)); bottom: calc(14px + env(safe-area-inset-bottom)); width: 86px; height: 86px; font-size: 13px; }
+  #tcGas   { right: calc(14px + env(safe-area-inset-right)); bottom: calc(14px + env(safe-area-inset-bottom)); width: 100px; height: 120px; font-size: 16px; }
+  #tcTopRow {
+    position: fixed;
+    top: calc(12px + env(safe-area-inset-top));
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex; gap: 8px;
+    z-index: 5;
+  }
+  #tcTopRow button { position: static; height: 40px; font-size: 12px; padding: 0 12px; }
+  #rotateHint { display: none; font-size: 12px; color: var(--ink-soft); margin: -14px 0 18px; }
+  @media (pointer: coarse) and (orientation: portrait) {
+    #rotateHint { display: block; }
+  }
 </style>
 </head>
 <body>
 <canvas id="game"></canvas>
 
+<div id="touchControls" hidden>
+  <button id="tcLeft" aria-label="steer left">&#9664;</button>
+  <button id="tcRight" aria-label="steer right">&#9654;</button>
+  <button id="tcBrake" aria-label="brake">BRAKE</button>
+  <button id="tcGas" aria-label="gas">GAS</button>
+  <div id="tcTopRow">
+    <button id="tcView">VIEW</button>
+    <button id="tcSound">SOUND</button>
+    <button id="tcPause">&#10074;&#10074;</button>
+  </div>
+</div>
+
 <div class="screen" id="menuScreen">
   <div class="panel">
     <div class="panel-titlebar"><span>BLACKTOP.SYS</span></div>
     <h1>BLACKTOP</h1>
-    <p class="tagline">a line-art racing game &middot; keyboard required</p>
+    <p class="tagline">a line-art racing game</p>
     <h2>SELECT TRACK</h2>
+    <p id="rotateHint">tip: rotate your phone sideways for the best view</p>
     <div class="tracks" id="trackButtons"></div>
     <div class="controls-list">
       <div><b>&uarr; / &darr;</b> gas &amp; brake</div>
@@ -174,7 +224,7 @@
    BLACKTOP — a line-art racing game
    Monochrome pseudo-3D racer. Black lines on paper white.
    ============================================================ */
-const VERSION = "v0.2.0";
+const VERSION = "v0.3.0";
 
 /* ---------- constants ---------- */
 const INK = "#1A1A1A";
@@ -459,12 +509,8 @@ window.addEventListener("keydown", e => {
     if (n >= 1 && n <= TRACKS.length) startRace(TRACKS[n - 1]);
     return;
   }
-  if (k === "v" || k === "V") G.view = G.view === "cockpit" ? "hood" : "cockpit";
-  if (k === "m" || k === "M") {
-    audio.on = !audio.on;
-    if (audio.on) initAudio();
-    flashMsg(audio.on ? "SOUND ON" : "SOUND OFF");
-  }
+  if (k === "v" || k === "V") toggleView();
+  if (k === "m" || k === "M") toggleSound();
   if ((k === "p" || k === "P" || k === "Escape") && (G.state === "racing" || G.state === "countdown")) togglePause();
   if (G.state === "finished") {
     if (k === "r" || k === "R") startRace(G.track.def);
@@ -480,6 +526,41 @@ window.addEventListener("blur", () => {
 });
 document.addEventListener("visibilitychange", () => {
   if (document.hidden && G.state === "racing" && !G.paused) togglePause();
+});
+function toggleView() { G.view = G.view === "cockpit" ? "hood" : "cockpit"; }
+function toggleSound() {
+  audio.on = !audio.on;
+  if (audio.on) initAudio();
+  flashMsg(audio.on ? "SOUND ON" : "SOUND OFF");
+}
+
+/* ---------- touch controls ---------- */
+const IS_TOUCH = window.matchMedia("(pointer: coarse)").matches || "ontouchstart" in window;
+const touchControls = document.getElementById("touchControls");
+function updateTouchUI() {
+  touchControls.hidden = !(IS_TOUCH && !G.paused &&
+    (G.state === "racing" || G.state === "countdown"));
+}
+function bindHold(id, key) {
+  const el = document.getElementById(id);
+  const release = () => { keys[key] = false; el.classList.remove("held"); };
+  el.addEventListener("pointerdown", e => {
+    e.preventDefault();
+    try { el.setPointerCapture(e.pointerId); } catch (err) {}
+    keys[key] = true; el.classList.add("held");
+  });
+  el.addEventListener("pointerup", release);
+  el.addEventListener("pointercancel", release);
+  el.addEventListener("contextmenu", e => e.preventDefault());
+}
+bindHold("tcGas", "ArrowUp");
+bindHold("tcBrake", "ArrowDown");
+bindHold("tcLeft", "ArrowLeft");
+bindHold("tcRight", "ArrowRight");
+document.getElementById("tcView").addEventListener("click", toggleView);
+document.getElementById("tcSound").addEventListener("click", toggleSound);
+document.getElementById("tcPause").addEventListener("click", () => {
+  if (G.state === "racing" || G.state === "countdown") togglePause();
 });
 
 /* ---------- flow ---------- */
@@ -533,6 +614,7 @@ function showScreen(id) {
     const btn = screens[id].querySelector("button");
     if (btn) btn.focus();
   }
+  updateTouchUI();
 }
 function trackThumb(def, w, h) {
   const c = document.createElement("canvas");
@@ -575,6 +657,12 @@ function buildMenu() {
     btn.addEventListener("click", () => startRace(def));
     holder.appendChild(btn);
   });
+  if (IS_TOUCH) {
+    document.querySelector(".controls-list").innerHTML =
+      "<div><b>GAS/BRAKE</b> hold the right-side buttons</div>" +
+      "<div><b>&#9664; &#9654;</b> hold to steer</div>" +
+      "<div><b>TOP ROW</b> view &middot; sound &middot; pause</div>";
+  }
   document.getElementById("versionTag").textContent = VERSION;
 }
 function showResults(rec, isRecord) {
@@ -908,13 +996,15 @@ function drawCockpit() {
   ctx.moveTo(W * 0.075, 0); ctx.lineTo(W * 0.925, 0);
   ctx.lineTo(W * 0.918, H * 0.045); ctx.lineTo(W * 0.082, H * 0.045);
   ctx.closePath(); ctx.fill(); ctx.stroke();
-  // rearview mirror
-  ctx.beginPath();
-  ctx.rect(W * 0.44, H * 0.055, W * 0.12, H * 0.045);
-  ctx.fill(); ctx.stroke();
-  ctx.beginPath();
-  ctx.moveTo(W * 0.5, H * 0.045); ctx.lineTo(W * 0.5, H * 0.055);
-  ctx.stroke();
+  // rearview mirror (skipped on touch — the VIEW/SOUND/PAUSE row lives there)
+  if (!IS_TOUCH) {
+    ctx.beginPath();
+    ctx.rect(W * 0.44, H * 0.055, W * 0.12, H * 0.045);
+    ctx.fill(); ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(W * 0.5, H * 0.045); ctx.lineTo(W * 0.5, H * 0.055);
+    ctx.stroke();
+  }
   // steering wheel
   const wcx = W * 0.5, wcy = H * 1.14, wr = H * 0.36;
   ctx.save();
@@ -932,13 +1022,14 @@ function drawCockpit() {
   ctx.beginPath(); ctx.arc(0, 0, wr * 0.15, 0, Math.PI * 2);
   ctx.fillStyle = PAPER; ctx.fill(); ctx.lineWidth = H * 0.008; ctx.stroke();
   ctx.restore();
-  // gauges
+  // gauges (inset toward center on narrow/touch screens so corner buttons stay clear)
+  const compact = IS_TOUCH || W < 940;
   const gr = H * 0.085;
   const gy = dashTop + H * 0.135;
-  drawGauge(W * 0.26, gy, gr, speedPct, "MPH", "120", null);
+  drawGauge(W * (compact ? 0.37 : 0.26), gy, gr, speedPct, "MPH", "120", null);
   const gear = Math.min(3, Math.floor(speedPct * 3.999));
   const within = speedPct <= 0 ? 0 : speedPct * 4 - gear;
-  drawGauge(W * 0.74, gy, gr, 0.12 + within * 0.78, "RPM×1K", "8", 0.82);
+  drawGauge(W * (compact ? 0.63 : 0.74), gy, gr, 0.12 + within * 0.78, "RPM×1K", "8", 0.82);
 }
 
 function drawHood() {
@@ -1030,17 +1121,19 @@ function drawHUD() {
     ctx.textAlign = "right";
     ctx.fillText(l[1], W - pad - fs * 0.7, y);
   });
-  // key legend, bottom-left
-  const lfs = Math.max(10, Math.min(12.5, H * 0.016));
-  ctx.font = "600 " + lfs + "px ui-monospace, Menlo, monospace";
-  const legend = "↑↓ gas/brake · ←→ steer · V view · M sound · P pause";
-  const lw = ctx.measureText(legend).width;
-  ctx.fillStyle = "rgba(250,250,247,0.85)";
-  ctx.strokeStyle = INK; ctx.lineWidth = 1.5;
-  ctx.beginPath(); ctx.rect(pad, H - pad - lfs * 2, lw + lfs * 1.6, lfs * 2);
-  ctx.fill(); ctx.stroke();
-  ctx.fillStyle = INK; ctx.textAlign = "left";
-  ctx.fillText(legend, pad + lfs * 0.8, H - pad - lfs * 0.65);
+  // key legend, bottom-left (touch devices get on-screen buttons instead)
+  if (!IS_TOUCH) {
+    const lfs = Math.max(10, Math.min(12.5, H * 0.016));
+    ctx.font = "600 " + lfs + "px ui-monospace, Menlo, monospace";
+    const legend = "↑↓ gas/brake · ←→ steer · V view · M sound · P pause";
+    const lw = ctx.measureText(legend).width;
+    ctx.fillStyle = "rgba(250,250,247,0.85)";
+    ctx.strokeStyle = INK; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.rect(pad, H - pad - lfs * 2, lw + lfs * 1.6, lfs * 2);
+    ctx.fill(); ctx.stroke();
+    ctx.fillStyle = INK; ctx.textAlign = "left";
+    ctx.fillText(legend, pad + lfs * 0.8, H - pad - lfs * 0.65);
+  }
   // flash message
   if (G.msg) {
     ctx.textAlign = "center";

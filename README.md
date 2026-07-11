@@ -21,4 +21,8 @@ looked on the classic Macintosh. An homage to a game my dad made years ago.
 | M | engine sound on/off |
 | P or Esc | pause |
 
-Single self-contained HTML file, no dependencies. Keyboard required.
+On phones and tablets, on-screen touch controls appear automatically:
+hold GAS/BRAKE on the right, steer with ◀ ▶ on the left, and use the
+VIEW / SOUND / pause row at the top. Landscape recommended.
+
+Single self-contained HTML file, no dependencies.
