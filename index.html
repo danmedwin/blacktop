@@ -233,7 +233,7 @@
    BLACKTOP — a line-art racing game
    Monochrome pseudo-3D racer. Black lines on paper white.
    ============================================================ */
-const VERSION = "v0.4.2";
+const VERSION = "v0.4.3";
 
 /* ---------- constants ---------- */
 const INK = "#1A1A1A";
@@ -453,6 +453,17 @@ function updateAudio(speedPct, running) {
   audio.osc2.frequency.setTargetAtTime(f * 0.5, t, 0.05);
   audio.filt.frequency.setTargetAtTime(400 + speedPct * 900, t, 0.1);
 }
+function beep(freq, dur) {
+  if (!audio.ctx || !audio.on) return;
+  const actx = audio.ctx, t = actx.currentTime;
+  const o = actx.createOscillator(), g = actx.createGain();
+  o.type = "square"; o.frequency.value = freq;
+  g.gain.setValueAtTime(0.09, t);
+  g.gain.setValueAtTime(0.09, t + dur - 0.02);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  o.connect(g); g.connect(actx.destination);
+  o.start(t); o.stop(t + dur + 0.05);
+}
 function ding(freq, delay) {
   if (!audio.ctx || !audio.on) return;
   const actx = audio.ctx, t = actx.currentTime + (delay || 0);
@@ -601,7 +612,7 @@ function startRace(def) {
   G.track = buildTrack(def);
   G.best = loadBest(def.id);
   G.pos = 0; G.playerX = 0; G.speed = 0; G.steerVis = 0; G.touchSteer = 0;
-  G.lap = 1; G.splits = []; G.raceTime = 0; G.lapStart = 0;
+  G.lap = 1; G.splits = []; G.raceTime = 0; G.lapStart = 0; G.lastCount = 99;
   G.shakeT = 0; G.msg = null; G.msgT = 0; G.finish = null;
   for (const ph of G.track.potholes) ph.hitLap = -1;
   G.state = "countdown"; G.countdownT = 3.2; G.paused = false;
@@ -718,6 +729,18 @@ document.getElementById("btnRetry").addEventListener("click", () => startRace(G.
 document.getElementById("btnMenu").addEventListener("click", toMenu);
 document.getElementById("btnResume").addEventListener("click", togglePause);
 document.getElementById("btnQuit").addEventListener("click", () => { G.paused = false; toMenu(); });
+
+function updateCountdown(dt) {
+  G.countdownT -= dt;
+  const n = Math.ceil(G.countdownT - 0.2);
+  if (n !== G.lastCount) {           // classic start tones: low, low, low, HIGH
+    G.lastCount = n;
+    if (n > 0 && n <= 3) beep(440, 0.18);
+    else if (n <= 0) beep(880, 0.55);
+  }
+  if (G.countdownT <= -0.6) { G.state = "racing"; flashMsg("LAP 1"); }
+  updateAudio(0.12, true);
+}
 
 /* ---------- physics ---------- */
 function updateRace(dt) {
@@ -1232,9 +1255,7 @@ function frame(now) {
   if (G.paused) { renderScene(); return; }
 
   if (G.state === "countdown") {
-    G.countdownT -= dt;
-    if (G.countdownT <= -0.6) { G.state = "racing"; flashMsg("LAP 1"); }
-    updateAudio(0.12, true);
+    updateCountdown(dt);
   } else if (G.state === "racing") {
     updateRace(dt);
   }
