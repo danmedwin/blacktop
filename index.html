@@ -174,7 +174,7 @@
    BLACKTOP — a line-art racing game
    Monochrome pseudo-3D racer. Black lines on paper white.
    ============================================================ */
-const VERSION = "v0.1.0";
+const VERSION = "v0.2.0";
 
 /* ---------- constants ---------- */
 const INK = "#1A1A1A";
@@ -193,7 +193,8 @@ const COAST = -MAX_SPEED / 10;
 const OFFROAD_DECEL = -MAX_SPEED * 0.9;
 const OFFROAD_CAP = MAX_SPEED * 0.28;
 const POTHOLE_FACTOR = 0.32;   // speed multiplier on hit
-const CENTRIFUGAL = 0.055;
+const CENTRIFUGAL = 0.30;      // no auto-steer: curves throw you wide unless you steer
+const CROSS_BAND = 9;          // segments each side of a track self-crossing
 const TOTAL_LAPS = 3;
 const MPH_FACTOR = 120 / MAX_SPEED;  // top speed reads exactly 120 mph
 
@@ -302,6 +303,30 @@ function buildTrack(def) {
     (curves[(i - 1 + N) % N] + curves[i] + curves[(i + 1) % N]) / 3);
   const segments = smooth.map((c, i) => ({ index: i, curve: c, heading: headings[i] }));
 
+  // self-crossings (figure 8): find where the centerline meets itself
+  const candidates = [];
+  for (let i = 0; i < N; i++) {
+    for (let j = i + 25; j < N; j++) {
+      if (N - (j - i) < 25) continue;
+      const d = Math.hypot(pts[i].x - pts[j].x, pts[i].y - pts[j].y);
+      if (d < SEG_SPACING) candidates.push([i, j, d]);
+    }
+  }
+  candidates.sort((a, b) => a[2] - b[2]);
+  const crossIdx = [];
+  for (const [i, j] of candidates) {
+    if (crossIdx.some(c => Math.min(Math.abs(c - i), N - Math.abs(c - i)) < 12 ||
+                            Math.min(Math.abs(c - j), N - Math.abs(c - j)) < 12)) continue;
+    crossIdx.push(i, j);
+  }
+  const crossBand = new Set(), crossStart = new Set(), crossEnd = new Set(), crossCenter = new Set();
+  for (const ci of crossIdx) {
+    for (let k = -CROSS_BAND; k <= CROSS_BAND; k++) crossBand.add((ci + k + N) % N);
+    crossStart.add((ci - CROSS_BAND + N) % N);
+    crossEnd.add((ci + CROSS_BAND) % N);
+    crossCenter.add(ci);
+  }
+
   // potholes: seeded, spread out, never in the first stretch
   const rng = mulberry32(def.seed);
   const potholes = [];
@@ -327,6 +352,7 @@ function buildTrack(def) {
   }
   return {
     def, segments, potholes, pts,
+    crossBand, crossStart, crossEnd, crossCenter,
     length: N * SEG_LEN,
     bounds: { minX, maxX, minY, maxY }
   };
@@ -367,6 +393,17 @@ function updateAudio(speedPct, running) {
   audio.osc1.frequency.setTargetAtTime(f, t, 0.05);
   audio.osc2.frequency.setTargetAtTime(f * 0.5, t, 0.05);
   audio.filt.frequency.setTargetAtTime(400 + speedPct * 900, t, 0.1);
+}
+function ding(freq, delay) {
+  if (!audio.ctx || !audio.on) return;
+  const actx = audio.ctx, t = actx.currentTime + (delay || 0);
+  const o = actx.createOscillator(), g = actx.createGain();
+  o.type = "sine"; o.frequency.value = freq || 1174.7;
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(0.22, t + 0.012);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.55);
+  o.connect(g); g.connect(actx.destination);
+  o.start(t); o.stop(t + 0.6);
 }
 function thunk() {
   if (!audio.ctx || !audio.on) return;
@@ -575,8 +612,8 @@ function updateRace(dt) {
   G.steerVis += (steerIn - G.steerVis) * Math.min(1, dt * 10);
   const dxSteer = dt * 2.1 * speedPct;
   G.playerX += steerIn * dxSteer;
-  // curves push you outward
-  G.playerX -= dt * speedPct * seg.curve * CENTRIFUGAL;
+  // curves throw you outward (speed-squared: braking makes corners holdable)
+  G.playerX -= dt * speedPct * speedPct * seg.curve * CENTRIFUGAL;
 
   // throttle / brake
   if (keys.ArrowUp || keys.w) G.speed += ACCEL * dt;
@@ -612,8 +649,9 @@ function updateRace(dt) {
     G.pos -= T.length;
     G.splits.push(G.raceTime - G.lapStart);
     G.lapStart = G.raceTime;
-    if (G.lap >= TOTAL_LAPS) { finishRace(); return; }
+    if (G.lap >= TOTAL_LAPS) { ding(1174.7); ding(1568, 0.18); finishRace(); return; }
     G.lap++;
+    ding(1174.7);
     flashMsg("LAP " + G.lap);
   }
 
@@ -664,10 +702,9 @@ function drawWorld() {
 
   let x = 0;
   let dx = -T.segments[baseIdx].curve * basePct;
-  const left = [], right = [], dashes = [], posts = [], phDraws = [];
+  const left = [], right = [], dashes = [], posts = [], phDraws = [], crossLines = [];
   let startBand = null;
 
-  let prevSX = x;
   for (let n = 0; n < DRAW_DIST; n++) {
     const idx = (baseIdx + n) % N;
     const seg = T.segments[idx];
@@ -679,15 +716,23 @@ function drawWorld() {
     const rw1 = p1.scale * ROAD_W * (W / 2);
     const rw2 = p2.scale * ROAD_W * (W / 2);
 
-    if (n === 0) {
-      left.push([p1.x - rw1, p1.y]); right.push([p1.x + rw1, p1.y]);
+    const inBand = T.crossBand.has(idx);
+    if (inBand) {
+      // open intersection: our edges break while the cross road passes
+      if (left.length && left[left.length - 1] !== null) { left.push(null); right.push(null); }
+      if (T.crossStart.has(idx)) crossLines.push({ y: p1.y, cx: p1.x, rw: rw1, edge: true });
+      if (T.crossCenter.has(idx)) crossLines.push({ y: p1.y, cx: p1.x, rw: rw1, edge: false });
+      if (T.crossEnd.has(idx)) crossLines.push({ y: p1.y, cx: p1.x, rw: rw1, edge: true });
+    } else {
+      if (left.length === 0 || left[left.length - 1] === null) {
+        left.push([p1.x - rw1, p1.y]); right.push([p1.x + rw1, p1.y]);
+      }
+      left.push([p2.x - rw2, p2.y]); right.push([p2.x + rw2, p2.y]);
+      if (idx % 3 === 0)
+        dashes.push([p1.x, p1.y, p2.x, p2.y]);
+      if (idx % 8 === 0 && n > 0)
+        posts.push([p1.x - rw1 * 1.14, p1.x + rw1 * 1.14, p1.y, p1.scale]);
     }
-    left.push([p2.x - rw2, p2.y]); right.push([p2.x + rw2, p2.y]);
-
-    if (idx % 3 === 0)
-      dashes.push([p1.x, p1.y, p2.x, p2.y]);
-    if (idx % 8 === 0 && n > 0)
-      posts.push([p1.x - rw1 * 1.14, p1.x + rw1 * 1.14, p1.y, p1.scale]);
     if (idx === 0)
       startBand = { p1, p2, rw1, rw2 };
 
@@ -711,12 +756,33 @@ function drawWorld() {
   ctx.lineJoin = "round";
   for (const side of [left, right]) {
     ctx.beginPath();
-    // draw near-to-far so join is tidy
-    for (let i = 0; i < side.length; i++) {
-      const p = side[i];
-      i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1]);
+    let pen = false;
+    for (const p of side) {
+      if (p === null) { pen = false; continue; }
+      pen ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1]);
+      pen = true;
     }
     ctx.stroke();
+  }
+  // cross road passing through (figure-8 intersection) — its lines gap where our lane runs
+  for (const cl of crossLines) {
+    const gapL = cl.cx - cl.rw, gapR = cl.cx + cl.rw;
+    if (cl.edge) {
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      if (gapL > 0) { ctx.moveTo(0, cl.y); ctx.lineTo(Math.min(gapL, W), cl.y); }
+      if (gapR < W) { ctx.moveTo(Math.max(gapR, 0), cl.y); ctx.lineTo(W, cl.y); }
+      ctx.stroke();
+    } else {
+      ctx.lineWidth = 1.5;
+      const dashW = Math.max(10, cl.rw * 0.06);
+      ctx.beginPath();
+      for (let xx = 8; xx < W; xx += dashW * 2.6) {
+        if (xx + dashW > gapL && xx < gapR) continue;
+        ctx.moveTo(xx, cl.y); ctx.lineTo(xx + dashW, cl.y);
+      }
+      ctx.stroke();
+    }
   }
   // centre dashes
   ctx.lineWidth = 1.5;
@@ -964,6 +1030,17 @@ function drawHUD() {
     ctx.textAlign = "right";
     ctx.fillText(l[1], W - pad - fs * 0.7, y);
   });
+  // key legend, bottom-left
+  const lfs = Math.max(10, Math.min(12.5, H * 0.016));
+  ctx.font = "600 " + lfs + "px ui-monospace, Menlo, monospace";
+  const legend = "↑↓ gas/brake · ←→ steer · V view · M sound · P pause";
+  const lw = ctx.measureText(legend).width;
+  ctx.fillStyle = "rgba(250,250,247,0.85)";
+  ctx.strokeStyle = INK; ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.rect(pad, H - pad - lfs * 2, lw + lfs * 1.6, lfs * 2);
+  ctx.fill(); ctx.stroke();
+  ctx.fillStyle = INK; ctx.textAlign = "left";
+  ctx.fillText(legend, pad + lfs * 0.8, H - pad - lfs * 0.65);
   // flash message
   if (G.msg) {
     ctx.textAlign = "center";
