@@ -233,7 +233,7 @@
    BLACKTOP — a line-art racing game
    Monochrome pseudo-3D racer. Black lines on paper white.
    ============================================================ */
-const VERSION = "v0.4.1";
+const VERSION = "v0.4.2";
 
 /* ---------- constants ---------- */
 const INK = "#1A1A1A";
@@ -1066,9 +1066,7 @@ function drawCockpit() {
     let gx1 = SAFE.l + gr * 1.3;
     if (gy + gr > H - 116) gx1 = SAFE.l + 224 + gr; // 116 = brake height + margins
     drawGauge(gx1, gy, gr, speedPct, "MPH", "120", null);
-    const grT = gr * 0.7;
-    drawGauge(W - SAFE.r - grT * 1.7, dashTop + H * 0.05 + grT * 0.55, grT,
-      rpmFrac, "RPM", "8", 0.82);
+    drawGauge(W - SAFE.r - gr * 1.5, gy, gr, rpmFrac, "RPM", "8", 0.82);
   } else {
     const compact = W < 940;
     const gr = H * 0.085;
