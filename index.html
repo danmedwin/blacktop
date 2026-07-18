@@ -48,6 +48,9 @@
     font-size: 12px;
     letter-spacing: 0.12em;
     background: repeating-linear-gradient(to bottom, var(--paper) 0 2px, var(--ink) 2px 3px, var(--paper) 3px 5px);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
   }
   .panel-titlebar span {
     background: var(--paper);
@@ -184,7 +187,7 @@
 
 <div class="screen" id="menuScreen">
   <div class="panel">
-    <div class="panel-titlebar"><span>BLACKTOP.SYS</span></div>
+    <div class="panel-titlebar"><span>BLACKTOP.SYS</span><span id="versionTag"></span></div>
     <h1>BLACKTOP</h1>
     <p class="tagline">a line-art racing game</p>
     <h2>SELECT TRACK</h2>
@@ -197,13 +200,13 @@
       <div><b>M</b> engine sound on/off</div>
       <div><b>P or ESC</b> menu / pause</div>
     </div>
-    <div class="footer-line"><span>3 laps &middot; dodge the potholes &middot; beat your best time</span><span id="versionTag"></span></div>
+    <div class="footer-line"><span>3 laps &middot; dodge the potholes &middot; beat your best time</span></div>
   </div>
 </div>
 
 <div class="screen" id="resultsScreen" hidden>
   <div class="panel">
-    <div class="panel-titlebar"><span>RACE COMPLETE</span></div>
+    <div class="panel-titlebar"><span>RACE COMPLETE</span><span id="versionTag2"></span></div>
     <h2 id="resultTrackName">TRACK</h2>
     <div class="result-total" id="resultTotal">0:00.00</div>
     <div id="resultMode" class="tagline" hidden>run without potholes</div>
@@ -213,7 +216,7 @@
       <button id="btnRetry">RACE AGAIN (R)</button>
       <button id="btnMenu">TRACKS (T)</button>
     </div>
-    <div class="footer-line"><span id="resultBestLine"></span><span id="versionTag2"></span></div>
+    <div class="footer-line"><span id="resultBestLine"></span></div>
   </div>
 </div>
 
@@ -236,7 +239,7 @@
    BLACKTOP — a line-art racing game
    Monochrome pseudo-3D racer. Black lines on paper white.
    ============================================================ */
-const VERSION = "v0.5.0";
+const VERSION = "v0.5.1";
 
 /* ---------- constants ---------- */
 const INK = "#1A1A1A";
