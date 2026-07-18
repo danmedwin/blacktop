@@ -120,6 +120,8 @@
   .btn-row { display: flex; gap: 10px; margin-bottom: 18px; }
   .btn-row button { flex: 1; text-align: center; font-weight: 700; }
   .pause-panel { text-align: center; }
+  .menu-col { display: flex; flex-direction: column; gap: 10px; margin-top: 16px; min-width: 260px; }
+  .menu-col button { text-align: center; font-weight: 700; }
   @media (prefers-reduced-motion: reduce) {
     .new-record { animation: none; background: var(--ink); color: var(--paper); }
   }
@@ -176,9 +178,7 @@
   <button id="tcBrake" aria-label="brake">BRAKE</button>
   <button id="tcGas" aria-label="gas">GAS</button>
   <div id="tcStack">
-    <button id="tcView">VIEW</button>
-    <button id="tcSound">SOUND</button>
-    <button id="tcPause">PAUSE</button>
+    <button id="tcMenu">MENU</button>
   </div>
 </div>
 
@@ -195,7 +195,7 @@
       <div><b>&larr; / &rarr;</b> steer</div>
       <div><b>V</b> cockpit / hood view</div>
       <div><b>M</b> engine sound on/off</div>
-      <div><b>P or ESC</b> pause</div>
+      <div><b>P or ESC</b> menu / pause</div>
     </div>
     <div class="footer-line"><span>3 laps &middot; dodge the potholes &middot; beat your best time</span><span id="versionTag"></span></div>
   </div>
@@ -206,6 +206,7 @@
     <div class="panel-titlebar"><span>RACE COMPLETE</span></div>
     <h2 id="resultTrackName">TRACK</h2>
     <div class="result-total" id="resultTotal">0:00.00</div>
+    <div id="resultMode" class="tagline" hidden>run without potholes</div>
     <div id="recordBadge" class="new-record" hidden>&#9733; NEW RECORD &#9733;</div>
     <table class="splits" id="splitTable"></table>
     <div class="btn-row">
@@ -218,10 +219,12 @@
 
 <div class="screen" id="pauseScreen" hidden>
   <div class="panel pause-panel">
-    <div class="panel-titlebar"><span>PAUSED</span></div>
-    <h2>PAUSED</h2>
-    <div class="btn-row" style="margin-top:16px">
+    <div class="panel-titlebar"><span>MENU</span></div>
+    <div class="menu-col">
       <button id="btnResume">RESUME (P)</button>
+      <button id="btnMenuView">VIEW: COCKPIT</button>
+      <button id="btnMenuSound">SOUND: ON</button>
+      <button id="btnMenuPotholes">POTHOLES: ON</button>
       <button id="btnQuit">QUIT TO TRACKS</button>
     </div>
   </div>
@@ -233,7 +236,7 @@
    BLACKTOP — a line-art racing game
    Monochrome pseudo-3D racer. Black lines on paper white.
    ============================================================ */
-const VERSION = "v0.4.4";
+const VERSION = "v0.5.0";
 
 /* ---------- constants ---------- */
 const INK = "#1A1A1A";
@@ -267,6 +270,9 @@ function mulberry32(seed) {
     t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
     return ((t ^ t >>> 14) >>> 0) / 4294967296;
   };
+}
+function fmtBest(rec) {
+  return fmtTime(rec.total) + (rec.potholes === false ? " (no potholes)" : "");
 }
 function fmtTime(ms) {
   if (ms == null) return "—";
@@ -517,6 +523,8 @@ const G = {
   view: "cockpit",        // cockpit | hood
   pos: 0, playerX: 0, speed: 0,
   steerVis: 0, touchSteer: 0,
+  potholesOn: localStorage.getItem("blacktop_potholes") !== "off",
+  raceUsedPotholes: true,
   lap: 1, lapStart: 0, splits: [],
   raceTime: 0, countdownT: 0,
   shakeT: 0, msg: null, msgT: 0,
@@ -552,11 +560,22 @@ window.addEventListener("blur", () => {
 document.addEventListener("visibilitychange", () => {
   if (document.hidden && G.state === "racing" && !G.paused) togglePause();
 });
-function toggleView() { G.view = G.view === "cockpit" ? "hood" : "cockpit"; }
+function toggleView() { G.view = G.view === "cockpit" ? "hood" : "cockpit"; refreshMenuLabels(); }
 function toggleSound() {
   audio.on = !audio.on;
   if (audio.on) initAudio();
   flashMsg(audio.on ? "SOUND ON" : "SOUND OFF");
+  refreshMenuLabels();
+}
+function togglePotholes() {
+  G.potholesOn = !G.potholesOn;
+  try { localStorage.setItem("blacktop_potholes", G.potholesOn ? "on" : "off"); } catch (e) {}
+  refreshMenuLabels();
+}
+function refreshMenuLabels() {
+  document.getElementById("btnMenuView").textContent = "VIEW: " + (G.view === "cockpit" ? "COCKPIT" : "HOOD");
+  document.getElementById("btnMenuSound").textContent = "SOUND: " + (audio.on ? "ON" : "OFF");
+  document.getElementById("btnMenuPotholes").textContent = "POTHOLES: " + (G.potholesOn ? "ON" : "OFF");
 }
 
 /* ---------- touch controls ---------- */
@@ -599,9 +618,7 @@ function endSteer(e) {
 }
 canvas.addEventListener("pointerup", endSteer);
 canvas.addEventListener("pointercancel", endSteer);
-document.getElementById("tcView").addEventListener("click", toggleView);
-document.getElementById("tcSound").addEventListener("click", toggleSound);
-document.getElementById("tcPause").addEventListener("click", () => {
+document.getElementById("tcMenu").addEventListener("click", () => {
   if (G.state === "racing" || G.state === "countdown") togglePause();
 });
 
@@ -613,6 +630,7 @@ function startRace(def) {
   G.best = loadBest(def.id);
   G.pos = 0; G.playerX = 0; G.speed = 0; G.steerVis = 0; G.touchSteer = 0;
   G.lap = 1; G.splits = []; G.raceTime = 0; G.lapStart = 0; G.lastCount = 99;
+  G.raceUsedPotholes = G.potholesOn;
   G.shakeT = 0; G.msg = null; G.msgT = 0; G.finish = null;
   for (const ph of G.track.potholes) ph.hitLap = -1;
   G.state = "countdown"; G.countdownT = 3.2; G.paused = false;
@@ -627,13 +645,14 @@ function toMenu() {
 }
 function togglePause() {
   G.paused = !G.paused;
+  if (G.paused) refreshMenuLabels();
   showScreen(G.paused ? "pauseScreen" : null);
   if (G.paused) updateAudio(0, false);
 }
 function finishRace() {
   G.state = "finished";
   const total = G.raceTime;
-  const rec = { total, splits: G.splits.slice(), date: Date.now() };
+  const rec = { total, splits: G.splits.slice(), date: Date.now(), potholes: G.raceUsedPotholes };
   let isRecord = false;
   if (!G.best || total < G.best.total) {
     saveBest(G.track.def.id, rec);
@@ -691,7 +710,7 @@ function buildMenu() {
     const info = document.createElement("div");
     info.className = "track-info";
     info.innerHTML = '<div class="track-name">' + def.name + '</div>' +
-      '<div class="best">best ' + (best ? fmtTime(best.total) : "—") + '</div>';
+      '<div class="best">best ' + (best ? fmtBest(best) : "—") + '</div>';
     btn.appendChild(info);
     const key = document.createElement("span");
     key.className = "track-key"; key.textContent = String(i + 1);
@@ -703,13 +722,14 @@ function buildMenu() {
     document.querySelector(".controls-list").innerHTML =
       "<div><b>GAS/BRAKE</b> hold the buttons, lower left</div>" +
       "<div><b>STEER</b> drag the road (or the wheel)</div>" +
-      "<div><b>UNDER MAP</b> view &middot; sound &middot; pause</div>";
+      "<div><b>MENU</b> under the map &mdash; view &middot; sound &middot; potholes</div>";
   }
   document.getElementById("versionTag").textContent = VERSION;
 }
 function showResults(rec, isRecord) {
   document.getElementById("resultTrackName").textContent = G.track.def.name;
   document.getElementById("resultTotal").textContent = fmtTime(rec.total);
+  document.getElementById("resultMode").hidden = rec.potholes !== false;
   document.getElementById("recordBadge").hidden = !isRecord;
   const tbl = document.getElementById("splitTable");
   tbl.innerHTML = rec.splits.map((s, i) => {
@@ -717,17 +737,19 @@ function showResults(rec, isRecord) {
     return "<tr><td>LAP " + (i + 1) + "</td><td>" + fmtTime(s) + "</td><td>" +
       (s === bestLap ? "&#9666; fastest" : "") + "</td></tr>";
   }).join("");
-  const prevBest = isRecord ? (G.best ? G.best.total : null) : loadBest(G.track.def.id).total;
   document.getElementById("resultBestLine").textContent =
-    isRecord && G.best ? "previous best " + fmtTime(G.best.total)
+    isRecord && G.best ? "previous best " + fmtBest(G.best)
       : isRecord ? "first time on record"
-      : "best " + fmtTime(prevBest);
+      : "best " + fmtBest(loadBest(G.track.def.id));
   document.getElementById("versionTag2").textContent = VERSION;
   showScreen("resultsScreen");
 }
 document.getElementById("btnRetry").addEventListener("click", () => startRace(G.track.def));
 document.getElementById("btnMenu").addEventListener("click", toMenu);
 document.getElementById("btnResume").addEventListener("click", togglePause);
+document.getElementById("btnMenuView").addEventListener("click", toggleView);
+document.getElementById("btnMenuSound").addEventListener("click", toggleSound);
+document.getElementById("btnMenuPotholes").addEventListener("click", togglePotholes);
 document.getElementById("btnQuit").addEventListener("click", () => { G.paused = false; toMenu(); });
 
 function updateCountdown(dt) {
@@ -772,8 +794,9 @@ function updateRace(dt) {
   // pothole collisions
   const prevPos = G.pos;
   G.pos += G.speed * dt;
+  if (!G.potholesOn) G.raceUsedPotholes = false; // shared record, annotated
   const nose = 160;
-  for (const ph of T.potholes) {
+  if (G.potholesOn) for (const ph of T.potholes) {
     if (ph.hitLap === G.lap) continue;
     const a = prevPos + nose, b = G.pos + nose + 40;
     let z = ph.z;
@@ -880,7 +903,7 @@ function drawWorld() {
     if (idx === 0)
       startBand = { p1, p2, rw1, rw2 };
 
-    for (const ph of T.potholes) {
+    if (G.potholesOn) for (const ph of T.potholes) {
       if (ph.z >= z1 - loopOff && ph.z < z2 - loopOff && (loopOff === 0 || ph.z < SEG_LEN * (DRAW_DIST))) {
         const f = (ph.z - (z1 - loopOff)) / SEG_LEN;
         const px = p1.x + (p2.x - p1.x) * f + ph.x * (rw1 + (rw2 - rw1) * f);
@@ -1200,7 +1223,7 @@ function drawHUD() {
   if (!IS_TOUCH) {
     const lfs = Math.max(10, Math.min(12.5, H * 0.016));
     ctx.font = "600 " + lfs + "px ui-monospace, Menlo, monospace";
-    const legend = "↑↓ gas/brake · ←→ steer · V view · M sound · P pause";
+    const legend = "↑↓ gas/brake · ←→ steer · V view · M sound · P menu";
     const lw = ctx.measureText(legend).width;
     ctx.fillStyle = "rgba(250,250,247,0.85)";
     ctx.strokeStyle = INK; ctx.lineWidth = 1.5;
